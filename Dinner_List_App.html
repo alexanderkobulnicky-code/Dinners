@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dinner List</title>
+<style>
+  :root{
+    --bg:#f5f2ea;
+    --panel:#fffdf8;
+    --ink:#25231f;
+    --muted:#716c63;
+    --line:#d8d1c5;
+    --accent:#284d3b;
+    --accent2:#e5eee8;
+    --warn:#8a3d2f;
+    --pending:#7b5a16;
+    --made:#386643;
+    --shadow:0 8px 24px rgba(45,39,31,.08);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  button,input,select,textarea{font:inherit}
+  button{cursor:pointer}
+  .app{max-width:1000px;margin:0 auto;padding:22px 16px 64px}
+  header{
+    display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+    margin-bottom:18px
+  }
+  h1{font-family:Georgia,serif;font-size:34px;margin:0 0 3px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:14px}
+  .count{font-size:13px;color:var(--muted);text-align:right}
+  .toolbar{
+    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0 22px
+  }
+  .btn{
+    border:1px solid var(--line);background:var(--panel);color:var(--ink);
+    border-radius:12px;padding:12px 14px;font-weight:650;box-shadow:0 2px 8px rgba(45,39,31,.04)
+  }
+  .btn:hover{border-color:#aaa195}
+  .btn.primary{background:var(--accent);color:white;border-color:var(--accent)}
+  .btn.danger{color:var(--warn)}
+  .btn.small{padding:7px 10px;border-radius:9px;font-size:13px;font-weight:600;box-shadow:none}
+  .btn.ghost{background:transparent;box-shadow:none}
+  .panel{
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    padding:16px;box-shadow:var(--shadow);margin-bottom:18px
+  }
+  .panel h2{font-family:Georgia,serif;margin:0 0 12px;font-size:24px}
+  .panel-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}
+  .status-summary{display:flex;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+  .pill{
+    display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;
+    background:#f0ece4;border:1px solid #e1dacd;font-size:12px;color:#5f5a52
+  }
+  .pill.pending{background:#fbf0d4;color:#6d4e11;border-color:#ead7a5}
+  .pill.made{background:#e6f0e8;color:#31573a;border-color:#cddfce}
+  .empty{
+    color:var(--muted);text-align:center;padding:34px 12px;border:1px dashed var(--line);border-radius:12px
+  }
+  .cuisine{margin:18px 0 6px;font-family:Georgia,serif;font-size:20px}
+  .recipe-row{
+    display:grid;grid-template-columns:minmax(180px,1.4fr) minmax(240px,2fr) auto;
+    gap:12px;align-items:center;padding:11px 0;border-top:1px solid #ece7de
+  }
+  .recipe-row:first-of-type{border-top:0}
+  .recipe-name{font-weight:720}
+  .recipe-notes{font-size:12px;color:var(--muted);margin-top:4px}
+  .tags{display:flex;gap:6px;flex-wrap:wrap}
+  .row-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+  .status-select{border:1px solid var(--line);background:white;border-radius:9px;padding:7px 8px}
+  .chooser-note{color:var(--muted);font-size:13px;line-height:1.45;margin:-3px 0 14px}
+  .week-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .meal-card{
+    border:1px solid var(--line);border-radius:13px;padding:13px;background:#fff;
+    display:flex;flex-direction:column;gap:9px;min-height:145px
+  }
+  .meal-card .meal-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+  .meal-card h3{margin:0;font-family:Georgia,serif;font-size:19px}
+  .meal-card .why{color:var(--muted);font-size:12px;line-height:1.35}
+  .meal-card .actions{margin-top:auto;display:flex;gap:6px}
+  dialog{
+    border:0;border-radius:18px;padding:0;box-shadow:0 30px 80px rgba(20,15,10,.28);
+    width:min(700px,calc(100vw - 24px));max-height:calc(100vh - 40px)
+  }
+  dialog::backdrop{background:rgba(32,28,24,.38);backdrop-filter:blur(2px)}
+  .modal{padding:20px;background:var(--panel);overflow:auto;max-height:calc(100vh - 40px)}
+  .modal h2{font-family:Georgia,serif;margin:0 0 16px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .field.full{grid-column:1/-1}
+  label{font-weight:650;font-size:13px}
+  input,select,textarea{
+    width:100%;border:1px solid var(--line);border-radius:10px;background:white;padding:10px;color:var(--ink)
+  }
+  textarea{min-height:86px;resize:vertical}
+  .checkgroup{display:flex;flex-wrap:wrap;gap:8px}
+  .check{
+    display:flex;align-items:center;gap:6px;border:1px solid var(--line);padding:8px 10px;border-radius:10px;background:white
+  }
+  .check input{width:auto}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+  .tiny{font-size:12px;color:var(--muted)}
+  .hidden{display:none!important}
+  .flash{
+    position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#28251f;color:white;
+    border-radius:999px;padding:10px 14px;font-size:13px;box-shadow:var(--shadow);z-index:10
+  }
+  @media(max-width:720px){
+    .toolbar{grid-template-columns:1fr 1fr}
+    .recipe-row{grid-template-columns:1fr}
+    .row-actions{justify-content:flex-start}
+    .week-grid{grid-template-columns:1fr}
+    .form-grid{grid-template-columns:1fr}
+    .field.full{grid-column:auto}
+    header{align-items:flex-start}
+    .count{max-width:140px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>Dinner List</h1>
+      <div class="sub">A sturdier replacement for the notebook.</div>
+    </div>
+    <div class="count" id="summaryCount"></div>
+  </header>
+
+  <div class="toolbar">
+    <button class="btn" id="showAllBtn">All Recipes</button>
+    <button class="btn primary" id="chooseBtn">Choose 7 Meals</button>
+    <button class="btn" id="addBtn">Add Meal</button>
+    <button class="btn danger" id="resetBtn">Reset All</button>
+  </div>
+
+  <section class="panel hidden" id="chooserPanel">
+    <div class="panel-head">
+      <h2>This Week</h2>
+      <div>
+        <button class="btn small" id="newSevenBtn">Mulligan All</button>
+        <button class="btn small primary" id="acceptSevenBtn">Accept 7</button>
+      </div>
+    </div>
+    <div class="chooser-note">
+      Drawn only from Not Made meals. The selector tries to keep fish, fried food, Claire-rating bands,
+      ease, soups, main types, and cuisines from becoming lopsided later, while avoiding too much repetition within this seven.
+    </div>
+    <div class="week-grid" id="weekGrid"></div>
+  </section>
+
+  <section class="panel" id="allPanel">
+    <div class="panel-head">
+      <h2>All Recipes</h2>
+      <div class="status-summary" id="statusSummary"></div>
+    </div>
+    <div id="recipeList"></div>
+  </section>
+</div>
+
+<dialog id="mealDialog">
+  <form method="dialog" class="modal" id="mealForm">
+    <h2 id="dialogTitle">Add Meal</h2>
+    <div class="form-grid">
+      <div class="field full">
+        <label for="name">Meal name</label>
+        <input id="name" required maxlength="120" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="cuisine">Cuisine / ethnicity</label>
+        <input id="cuisine" required maxlength="80" placeholder="e.g. French">
+      </div>
+      <div class="field">
+        <label for="status">Status</label>
+        <select id="status">
+          <option value="not-made">Not Made</option>
+          <option value="pending">Pending</option>
+          <option value="made">Made</option>
+        </select>
+      </div>
+
+      <div class="field full">
+        <label>Main type</label>
+        <div class="checkgroup">
+          <label class="check"><input type="checkbox" name="mainType" value="meat"> Meat</label>
+          <label class="check"><input type="checkbox" name="mainType" value="fish"> Fish</label>
+          <label class="check"><input type="checkbox" name="mainType" value="legumes"> Legumes</label>
+          <label class="check"><input type="checkbox" name="mainType" value="vegetables"> Vegetables</label>
+        </div>
+        <div class="tiny">More than one is allowed.</div>
+      </div>
+
+      <div class="field">
+        <label for="meatLevel">Meat component</label>
+        <select id="meatLevel">
+          <option value="none">None</option>
+          <option value="trivial">Trivial</option>
+          <option value="substantial">Substantial</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="friedLevel">Fried component</label>
+        <select id="friedLevel">
+          <option value="none">None</option>
+          <option value="trivial">Trivial</option>
+          <option value="substantial">Substantial</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="soup">Soup?</label>
+        <select id="soup">
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="claire">Claire rating (1–10)</label>
+        <input id="claire" type="number" min="1" max="10" step="1" value="5" required>
+      </div>
+      <div class="field">
+        <label for="ease">Ease (1–10)</label>
+        <input id="ease" type="number" min="1" max="10" step="1" value="5" required>
+      </div>
+      <div class="field full">
+        <label for="notes">Notes <span class="tiny">(optional)</span></label>
+        <textarea id="notes"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" value="cancel" type="button" id="cancelBtn">Cancel</button>
+      <button class="btn primary" value="default" type="submit">Save Meal</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="flash" class="flash hidden"></div>
+
+<script>
+(() => {
+  const STORAGE_KEY = "dinner-list-v1";
+  let recipes = load();
+  let currentSeven = [];
+  let editingId = null;
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
+
+  function load(){
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch(e){ return []; }
+  }
+  function save(){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
+    render();
+  }
+  function uid(){
+    return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2));
+  }
+  function flash(msg){
+    $("flash").textContent = msg;
+    $("flash").classList.remove("hidden");
+    clearTimeout(flash.t);
+    flash.t = setTimeout(() => $("flash").classList.add("hidden"), 1800);
+  }
+  function titleCase(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : ""; }
+  function ratingBand(n){ return n <= 4 ? "low" : n <= 7 ? "mid" : "high"; }
+  function easeBand(n){ return n <= 3 ? "hard" : n <= 7 ? "mid" : "easy"; }
+
+  function featureMap(r){
+    const f = {};
+    for(const t of (r.mainTypes || [])) f["main:"+t] = 1;
+    f["meat:"+r.meatLevel] = 1;
+    f["fried:"+r.friedLevel] = 1;
+    f["soup:"+(r.soup ? "yes":"no")] = 1;
+    f["claire:"+ratingBand(Number(r.claire))] = 1;
+    f["ease:"+easeBand(Number(r.ease))] = 1;
+    return f;
+  }
+
+  function scoreSet(set, pool){
+    if(!set.length) return Infinity;
+    const featureTotals = {};
+    const setTotals = {};
+    for(const r of pool){
+      for(const k of Object.keys(featureMap(r))) featureTotals[k]=(featureTotals[k]||0)+1;
+    }
+    for(const r of set){
+      for(const k of Object.keys(featureMap(r))) setTotals[k]=(setTotals[k]||0)+1;
+    }
+    let score=0;
+    for(const [k,total] of Object.entries(featureTotals)){
+      const target=set.length*(total/pool.length);
+      const actual=setTotals[k]||0;
+      const weight = k.startsWith("main:") ? 1.35 :
+                     k.startsWith("fried:") ? 1.30 :
+                     k.startsWith("claire:") ? 1.25 :
+                     k.startsWith("ease:") ? 1.1 :
+                     k.startsWith("soup:") ? 1.0 : 1.15;
+      score += weight * Math.pow(actual-target,2) / Math.max(.6,target);
+    }
+
+    const cuisines = {};
+    const poolCuisine = {};
+    for(const r of pool) poolCuisine[r.cuisine]=(poolCuisine[r.cuisine]||0)+1;
+    for(const r of set) cuisines[r.cuisine]=(cuisines[r.cuisine]||0)+1;
+    for(const [c,count] of Object.entries(cuisines)){
+      const target=set.length*((poolCuisine[c]||0)/pool.length);
+      score += .7*Math.pow(count-target,2)/Math.max(.7,target);
+      if(count>1) score += .75*Math.pow(count-1,1.35);
+    }
+
+    // Gentle penalties for several strongly similar meals in the same seven.
+    const substantialFried = set.filter(r=>r.friedLevel==="substantial").length;
+    const soups = set.filter(r=>r.soup).length;
+    const fish = set.filter(r=>(r.mainTypes||[]).includes("fish")).length;
+    if(substantialFried>2) score += (substantialFried-2)*1.6;
+    if(soups>2) score += (soups-2)*1.1;
+    if(fish>3) score += (fish-3)*.8;
+
+    return score;
+  }
+
+  function randomSet(pool, n){
+    const arr = pool.slice();
+    for(let i=arr.length-1;i>0;i--){
+      const j=Math.floor(Math.random()*(i+1));
+      [arr[i],arr[j]]=[arr[j],arr[i]];
+    }
+    return arr.slice(0,n);
+  }
+
+  function chooseSeven(){
+    const pool = recipes.filter(r=>r.status==="not-made");
+    if(pool.length===0){
+      currentSeven=[];
+      renderChooser();
+      flash("No Not Made meals remain.");
+      return;
+    }
+    const n=Math.min(7,pool.length);
+    let best=null, bestScore=Infinity;
+    const trials = Math.min(2400, Math.max(500, pool.length*8));
+    for(let i=0;i<trials;i++){
+      const set=randomSet(pool,n);
+      const s=scoreSet(set,pool) + Math.random()*.03;
+      if(s<bestScore){bestScore=s;best=set;}
+    }
+    currentSeven=best || randomSet(pool,n);
+    $("chooserPanel").classList.remove("hidden");
+    renderChooser();
+    $("chooserPanel").scrollIntoView({behavior:"smooth",block:"start"});
+  }
+
+  function mulliganOne(index){
+    const pool = recipes.filter(r=>r.status==="not-made");
+    const fixed = currentSeven.filter((_,i)=>i!==index);
+    const used = new Set(fixed.map(r=>r.id));
+    const candidates = pool.filter(r=>!used.has(r.id) && r.id!==currentSeven[index].id);
+    if(!candidates.length){ flash("No alternative meal is available."); return; }
+
+    let scored = candidates.map(r => ({r, s:scoreSet([...fixed,r],pool)+Math.random()*.05}))
+                           .sort((a,b)=>a.s-b.s);
+    const choice = scored[Math.floor(Math.random()*Math.min(5,scored.length))].r;
+    currentSeven[index]=choice;
+    renderChooser();
+  }
+
+  function acceptSeven(){
+    if(!currentSeven.length) return;
+    const ids=new Set(currentSeven.map(r=>r.id));
+    recipes=recipes.map(r=>ids.has(r.id)?{...r,status:"pending"}:r);
+    currentSeven=[];
+    save();
+    renderChooser();
+    flash("Seven meals marked Pending.");
+  }
+
+  function describe(r){
+    const parts=[];
+    if((r.mainTypes||[]).length) parts.push((r.mainTypes||[]).map(titleCase).join(" + "));
+    if(r.friedLevel!=="none") parts.push(titleCase(r.friedLevel)+" fried");
+    if(r.soup) parts.push("Soup");
+    parts.push("Claire "+r.claire+"/10");
+    parts.push("Ease "+r.ease+"/10");
+    return parts;
+  }
+
+  function reasonText(r){
+    const bits=[];
+    if((r.mainTypes||[]).includes("fish")) bits.push("fish");
+    if((r.mainTypes||[]).includes("legumes")) bits.push("legumes");
+    if((r.mainTypes||[]).includes("vegetables")) bits.push("vegetable-based");
+    if(r.friedLevel!=="none") bits.push(r.friedLevel+" fried component");
+    if(r.soup) bits.push("soup");
+    if(Number(r.claire)<=4) bits.push("one of Claire’s lower-rated meals");
+    if(Number(r.ease)>=8) bits.push("an easy meal");
+    return bits.length ? "Helps distribute: "+bits.join(", ")+"." : "Chosen to keep the remaining list balanced.";
+  }
+
+  function renderChooser(){
+    const grid=$("weekGrid");
+    if(!currentSeven.length){
+      grid.innerHTML='<div class="empty" style="grid-column:1/-1">Press <b>Choose 7 Meals</b> to make a list.</div>';
+      $("acceptSevenBtn").disabled=true;
+      return;
+    }
+    $("acceptSevenBtn").disabled=false;
+    grid.innerHTML=currentSeven.map((r,i)=>`
+      <div class="meal-card">
+        <div class="meal-top">
+          <div>
+            <h3>${esc(r.name)}</h3>
+            <div class="tiny">${esc(r.cuisine)}</div>
+          </div>
+          <span class="pill">${i+1}</span>
+        </div>
+        <div class="tags">${describe(r).map(x=>`<span class="pill">${esc(x)}</span>`).join("")}</div>
+        <div class="why">${esc(reasonText(r))}</div>
+        <div class="actions">
+          <button class="btn small" onclick="window.__mulligan(${i})">Mulligan</button>
+          <button class="btn small ghost" onclick="window.__edit('${r.id}')">Edit</button>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  function render(){
+    const counts={ "not-made":0, pending:0, made:0 };
+    for(const r of recipes) counts[r.status]=(counts[r.status]||0)+1;
+    $("summaryCount").textContent = `${recipes.length} meal${recipes.length===1?"":"s"} · ${counts["not-made"]} not made`;
+    $("statusSummary").innerHTML = `
+      <span class="pill">${counts["not-made"]} Not Made</span>
+      <span class="pill pending">${counts.pending} Pending</span>
+      <span class="pill made">${counts.made} Made</span>
+    `;
+
+    if(!recipes.length){
+      $("recipeList").innerHTML='<div class="empty">No recipes yet. Use <b>Add Meal</b> to enter the first one.</div>';
+      return;
+    }
+
+    const grouped={};
+    const sorted=recipes.slice().sort((a,b)=>
+      a.cuisine.localeCompare(b.cuisine,undefined,{sensitivity:"base"}) ||
+      a.name.localeCompare(b.name,undefined,{sensitivity:"base"})
+    );
+    for(const r of sorted){
+      const key=r.cuisine || "Uncategorized";
+      (grouped[key] ||= []).push(r);
+    }
+
+    $("recipeList").innerHTML=Object.entries(grouped).map(([cuisine,items])=>`
+      <div class="cuisine">${esc(cuisine)}</div>
+      ${items.map(r=>`
+        <div class="recipe-row">
+          <div>
+            <div class="recipe-name">${esc(r.name)}</div>
+            ${r.notes ? `<div class="recipe-notes">${esc(r.notes)}</div>` : ""}
+          </div>
+          <div class="tags">${describe(r).map(x=>`<span class="pill">${esc(x)}</span>`).join("")}</div>
+          <div class="row-actions">
+            <select class="status-select" aria-label="Status for ${esc(r.name)}" onchange="window.__status('${r.id}',this.value)">
+              <option value="not-made" ${r.status==="not-made"?"selected":""}>Not Made</option>
+              <option value="pending" ${r.status==="pending"?"selected":""}>Pending</option>
+              <option value="made" ${r.status==="made"?"selected":""}>Made</option>
+            </select>
+            <button class="btn small" onclick="window.__edit('${r.id}')">Edit</button>
+          </div>
+        </div>
+      `).join("")}
+    `).join("");
+  }
+
+  function openMeal(r=null){
+    editingId=r?.id || null;
+    $("dialogTitle").textContent = r ? "Edit Meal" : "Add Meal";
+    $("name").value=r?.name || "";
+    $("cuisine").value=r?.cuisine || "";
+    $("status").value=r?.status || "not-made";
+    $("meatLevel").value=r?.meatLevel || "none";
+    $("friedLevel").value=r?.friedLevel || "none";
+    $("soup").value=r?.soup ? "yes":"no";
+    $("claire").value=r?.claire ?? 5;
+    $("ease").value=r?.ease ?? 5;
+    $("notes").value=r?.notes || "";
+    document.querySelectorAll('input[name="mainType"]').forEach(cb=>{
+      cb.checked=(r?.mainTypes || []).includes(cb.value);
+    });
+    $("mealDialog").showModal();
+    setTimeout(()=>$("name").focus(),30);
+  }
+
+  function edit(id){
+    const r=recipes.find(x=>x.id===id);
+    if(r) openMeal(r);
+  }
+
+  function updateStatus(id,status){
+    recipes=recipes.map(r=>r.id===id?{...r,status}:r);
+    currentSeven=currentSeven.filter(r=>r.id!==id || status==="not-made");
+    save();
+    renderChooser();
+  }
+
+  $("mealForm").addEventListener("submit",(e)=>{
+    e.preventDefault();
+    const name=$("name").value.trim();
+    const cuisine=$("cuisine").value.trim();
+    if(!name || !cuisine) return;
+
+    const recipe={
+      id:editingId || uid(),
+      name,
+      cuisine,
+      status:$("status").value,
+      mainTypes:[...document.querySelectorAll('input[name="mainType"]:checked')].map(x=>x.value),
+      meatLevel:$("meatLevel").value,
+      friedLevel:$("friedLevel").value,
+      soup:$("soup").value==="yes",
+      claire:Math.max(1,Math.min(10,Number($("claire").value)||5)),
+      ease:Math.max(1,Math.min(10,Number($("ease").value)||5)),
+      notes:$("notes").value.trim()
+    };
+
+    if(editingId){
+      recipes=recipes.map(r=>r.id===editingId?recipe:r);
+      currentSeven=currentSeven.map(r=>r.id===editingId?recipe:r);
+    }else{
+      recipes.push(recipe);
+    }
+    save();
+    renderChooser();
+    $("mealDialog").close();
+    flash(editingId ? "Meal updated." : "Meal added.");
+    editingId=null;
+  });
+
+  $("cancelBtn").addEventListener("click",()=>{$("mealDialog").close();editingId=null;});
+  $("addBtn").addEventListener("click",()=>openMeal());
+  $("showAllBtn").addEventListener("click",()=>{$("allPanel").scrollIntoView({behavior:"smooth"});});
+  $("chooseBtn").addEventListener("click",chooseSeven);
+  $("newSevenBtn").addEventListener("click",chooseSeven);
+  $("acceptSevenBtn").addEventListener("click",acceptSeven);
+
+  $("resetBtn").addEventListener("click",()=>{
+    if(!recipes.length){flash("There is nothing to reset.");return;}
+    const ok=confirm("Reset every meal to Not Made?\n\nThis will clear all Pending and Made statuses for the current cycle.");
+    if(!ok) return;
+    recipes=recipes.map(r=>({...r,status:"not-made"}));
+    currentSeven=[];
+    save();
+    renderChooser();
+    flash("All meals reset to Not Made.");
+  });
+
+  window.__mulligan=mulliganOne;
+  window.__edit=edit;
+  window.__status=updateStatus;
+
+  render();
+  renderChooser();
+})();
+</script>
+</body>
+</html>
