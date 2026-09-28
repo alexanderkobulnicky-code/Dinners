@@ -140,7 +140,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.5</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.6</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -274,7 +274,7 @@
         if(r && r.difficulty==null && r.ease!=null){
           const {ease,...rest}=r;
           const oldEase=Number(ease);
-          return {...rest,difficulty:Number.isFinite(oldEase)?Math.max(1,Math.min(10,11-oldEase)):5};
+          return {...rest,difficulty:Number.isFinite(oldEase)?Math.max(1,Math.min(10,oldEase)):5};
         }
         return r;
       }) : [];
