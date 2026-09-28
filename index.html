@@ -69,6 +69,7 @@
   }
   .pill.pending{background:#fbf0d4;color:#6d4e11;border-color:#ead7a5}
   .pill.made{background:#e6f0e8;color:#31573a;border-color:#cddfce}
+  .pill.retired{background:#f3e3df;color:#7a3c31;border-color:#dfc1ba}
   .empty{
     color:var(--muted);text-align:center;padding:34px 12px;border:1px dashed var(--line);border-radius:12px
   }
@@ -137,7 +138,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.1</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.2</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -191,6 +192,7 @@
           <option value="not-made">Not Made</option>
           <option value="pending">Pending</option>
           <option value="made">Made</option>
+          <option value="retired">Made — don’t make again</option>
         </select>
       </div>
 
@@ -446,13 +448,14 @@
   }
 
   function render(){
-    const counts={ "not-made":0, pending:0, made:0 };
+    const counts={ "not-made":0, pending:0, made:0, retired:0 };
     for(const r of recipes) counts[r.status]=(counts[r.status]||0)+1;
     $("summaryCount").textContent = `${recipes.length} meal${recipes.length===1?"":"s"} · ${counts["not-made"]} not made`;
     $("statusSummary").innerHTML = `
       <span class="pill">${counts["not-made"]} Not Made</span>
       <span class="pill pending">${counts.pending} Pending</span>
       <span class="pill made">${counts.made} Made</span>
+      <span class="pill retired">${counts.retired} Don’t make again</span>
     `;
 
     if(!recipes.length){
@@ -484,6 +487,7 @@
               <option value="not-made" ${r.status==="not-made"?"selected":""}>Not Made</option>
               <option value="pending" ${r.status==="pending"?"selected":""}>Pending</option>
               <option value="made" ${r.status==="made"?"selected":""}>Made</option>
+              <option value="retired" ${r.status==="retired"?"selected":""}>Made — don’t make again</option>
             </select>
             <button class="btn small" onclick="window.__edit('${r.id}')">Edit</button>
           </div>
@@ -565,13 +569,19 @@
 
   $("resetBtn").addEventListener("click",()=>{
     if(!recipes.length){flash("There is nothing to reset.");return;}
-    const ok=confirm("Reset every meal to Not Made?\n\nThis will clear all Pending and Made statuses for the current cycle.");
+    const retiredCount=recipes.filter(r=>r.status==="retired").length;
+    const deletionNote=retiredCount
+      ? `\n\nThis will also permanently delete ${retiredCount} meal${retiredCount===1?"":"s"} marked “Made — don’t make again.”`
+      : "";
+    const ok=confirm("Reset the list?\n\nAll remaining meals will be set to Not Made."+deletionNote);
     if(!ok) return;
-    recipes=recipes.map(r=>({...r,status:"not-made"}));
+    recipes=recipes.filter(r=>r.status!=="retired").map(r=>({...r,status:"not-made"}));
     currentSeven=[];
     save();
     renderChooser();
-    flash("All meals reset to Not Made.");
+    flash(retiredCount
+      ? `Reset complete; deleted ${retiredCount} retired meal${retiredCount===1?"":"s"}.`
+      : "All meals reset to Not Made.");
   });
 
   window.__mulligan=mulliganOne;
