@@ -200,6 +200,7 @@
           <label class="check"><input type="checkbox" name="mainType" value="meat"> Meat</label>
           <label class="check"><input type="checkbox" name="mainType" value="fish"> Fish</label>
           <label class="check"><input type="checkbox" name="mainType" value="legumes"> Legumes</label>
+          <label class="check"><input type="checkbox" name="mainType" value="pasta"> Pasta</label>
           <label class="check"><input type="checkbox" name="mainType" value="vegetables"> Vegetables</label>
         </div>
         <div class="tiny">More than one is allowed.</div>
@@ -408,6 +409,7 @@
     const bits=[];
     if((r.mainTypes||[]).includes("fish")) bits.push("fish");
     if((r.mainTypes||[]).includes("legumes")) bits.push("legumes");
+    if((r.mainTypes||[]).includes("pasta")) bits.push("pasta");
     if((r.mainTypes||[]).includes("vegetables")) bits.push("vegetable-based");
     if(r.friedLevel!=="none") bits.push(r.friedLevel+" fried component");
     if(r.soup) bits.push("soup");
