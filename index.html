@@ -140,7 +140,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.4</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.5</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -162,7 +162,7 @@
     </div>
     <div class="chooser-note">
       Drawn only from Not Made meals. The selector tries to keep fish, fried food, Claire-rating bands,
-      ease, soups, main types, and cuisines from becoming lopsided later, while avoiding too much repetition within this seven.
+      difficulty, soups, main types, and cuisines from becoming lopsided later, while avoiding too much repetition within this seven.
     </div>
     <div class="week-grid" id="weekGrid"></div>
   </section>
@@ -238,8 +238,8 @@
         <input id="claire" type="number" min="1" max="10" step="1" value="5" required>
       </div>
       <div class="field">
-        <label for="ease">Ease (1–10)</label>
-        <input id="ease" type="number" min="1" max="10" step="1" value="5" required>
+        <label for="difficulty">Difficulty (1 = very easy, 10 = very difficult)</label>
+        <input id="difficulty" type="number" min="1" max="10" step="1" value="5" required>
       </div>
       <div class="field full">
         <label for="notes">Notes <span class="tiny">(optional)</span></label>
@@ -270,7 +270,14 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if(!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? parsed.map(r=>{
+        if(r && r.difficulty==null && r.ease!=null){
+          const {ease,...rest}=r;
+          const oldEase=Number(ease);
+          return {...rest,difficulty:Number.isFinite(oldEase)?Math.max(1,Math.min(10,11-oldEase)):5};
+        }
+        return r;
+      }) : [];
     } catch(e){ return []; }
   }
   function save(){
@@ -288,7 +295,11 @@
   }
   function titleCase(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : ""; }
   function ratingBand(n){ return n <= 4 ? "low" : n <= 7 ? "mid" : "high"; }
-  function easeBand(n){ return n <= 3 ? "hard" : n <= 7 ? "mid" : "easy"; }
+  function difficultyBand(n){ return n <= 3 ? "easy" : n <= 7 ? "mid" : "hard"; }
+  function difficultyOf(r){
+    const n=Number(r.difficulty);
+    return Number.isFinite(n) ? n : 5;
+  }
 
   function featureMap(r){
     const f = {};
@@ -297,7 +308,7 @@
     f["fried:"+r.friedLevel] = 1;
     f["soup:"+(r.soup ? "yes":"no")] = 1;
     f["claire:"+ratingBand(Number(r.claire))] = 1;
-    f["ease:"+easeBand(Number(r.ease))] = 1;
+    f["difficulty:"+difficultyBand(difficultyOf(r))] = 1;
     return f;
   }
 
@@ -318,7 +329,7 @@
       const weight = k.startsWith("main:") ? 1.35 :
                      k.startsWith("fried:") ? 1.30 :
                      k.startsWith("claire:") ? 1.25 :
-                     k.startsWith("ease:") ? 1.1 :
+                     k.startsWith("difficulty:") ? 1.1 :
                      k.startsWith("soup:") ? 1.0 : 1.15;
       score += weight * Math.pow(actual-target,2) / Math.max(.6,target);
     }
@@ -405,7 +416,7 @@
     if(r.friedLevel!=="none") parts.push(titleCase(r.friedLevel)+" fried");
     if(r.soup) parts.push("Soup");
     parts.push("Claire "+r.claire+"/10");
-    parts.push("Ease "+r.ease+"/10");
+    parts.push("Difficulty "+difficultyOf(r)+"/10");
     return parts;
   }
 
@@ -418,7 +429,8 @@
     if(r.friedLevel!=="none") bits.push(r.friedLevel+" fried component");
     if(r.soup) bits.push("soup");
     if(Number(r.claire)<=4) bits.push("one of Claire’s lower-rated meals");
-    if(Number(r.ease)>=8) bits.push("an easy meal");
+    if(difficultyOf(r)<=3) bits.push("an easy meal");
+    if(difficultyOf(r)>=8) bits.push("a demanding meal");
     return bits.length ? "Helps distribute: "+bits.join(", ")+"." : "Chosen to keep the remaining list balanced.";
   }
 
@@ -508,7 +520,7 @@
     $("friedLevel").value=r?.friedLevel || "none";
     $("soup").value=r?.soup ? "yes":"no";
     $("claire").value=r?.claire ?? 5;
-    $("ease").value=r?.ease ?? 5;
+    $("difficulty").value=difficultyOf(r);
     $("notes").value=r?.notes || "";
     document.querySelectorAll('input[name="mainType"]').forEach(cb=>{
       cb.checked=(r?.mainTypes || []).includes(cb.value);
@@ -545,7 +557,7 @@
       friedLevel:$("friedLevel").value,
       soup:$("soup").value==="yes",
       claire:Math.max(1,Math.min(10,Number($("claire").value)||5)),
-      ease:Math.max(1,Math.min(10,Number($("ease").value)||5)),
+      difficulty:Math.max(1,Math.min(10,Number($("difficulty").value)||5)),
       notes:$("notes").value.trim()
     };
 
