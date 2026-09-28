@@ -76,8 +76,10 @@
   .cuisine{margin:18px 0 6px;font-family:Georgia,serif;font-size:20px}
   .recipe-row{
     display:grid;grid-template-columns:minmax(180px,1.4fr) minmax(240px,2fr) auto;
-    gap:12px;align-items:center;padding:11px 0;border-top:1px solid #ece7de
+    gap:12px;align-items:center;padding:11px 10px;border-top:1px solid #ece7de;border-radius:10px
   }
+  .recipe-row.status-pending{background:#fbf0d4}
+  .recipe-row.status-made,.recipe-row.status-retired{background:#e6f0e8}
   .recipe-row:first-of-type{border-top:0}
   .recipe-name{font-weight:720}
   .recipe-notes{font-size:12px;color:var(--muted);margin-top:4px}
@@ -138,7 +140,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.3</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.4</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -476,7 +478,7 @@
     $("recipeList").innerHTML=Object.entries(grouped).map(([cuisine,items])=>`
       <div class="cuisine">${esc(cuisine)}</div>
       ${items.map(r=>`
-        <div class="recipe-row">
+        <div class="recipe-row status-${esc(r.status)}">
           <div>
             <div class="recipe-name">${esc(r.name)}</div>
             ${r.notes ? `<div class="recipe-notes">${esc(r.notes)}</div>` : ""}
