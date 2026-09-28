@@ -140,7 +140,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.6</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.7</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -156,6 +156,7 @@
     <div class="panel-head">
       <h2>This Week</h2>
       <div>
+        <button class="btn small ghost" id="closeChooserBtn">Close</button>
         <button class="btn small" id="newSevenBtn">Mulligan All</button>
         <button class="btn small primary" id="acceptSevenBtn">Accept 7</button>
       </div>
@@ -297,6 +298,7 @@
   function ratingBand(n){ return n <= 4 ? "low" : n <= 7 ? "mid" : "high"; }
   function difficultyBand(n){ return n <= 3 ? "easy" : n <= 7 ? "mid" : "hard"; }
   function difficultyOf(r){
+    if(!r) return 5;
     const n=Number(r.difficulty);
     return Number.isFinite(n) ? n : 5;
   }
@@ -579,6 +581,7 @@
   $("addBtn").addEventListener("click",()=>openMeal());
   $("showAllBtn").addEventListener("click",()=>{$("allPanel").scrollIntoView({behavior:"smooth"});});
   $("chooseBtn").addEventListener("click",chooseSeven);
+  $("closeChooserBtn").addEventListener("click",()=>{$("chooserPanel").classList.add("hidden");});
   $("newSevenBtn").addEventListener("click",chooseSeven);
   $("acceptSevenBtn").addEventListener("click",acceptSeven);
 
