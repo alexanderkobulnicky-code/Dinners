@@ -45,7 +45,7 @@
   .sub{color:var(--muted);font-size:14px}
   .count{font-size:13px;color:var(--muted);text-align:right}
   .toolbar{
-    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0 22px
+    display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:16px 0 22px
   }
   .btn{
     border:1px solid var(--line);background:var(--panel);color:var(--ink);
@@ -140,7 +140,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.7</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.8</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -149,6 +149,9 @@
     <button class="btn" id="showAllBtn">All Recipes</button>
     <button class="btn primary" id="chooseBtn">Choose 7 Meals</button>
     <button class="btn" id="addBtn">Add Meal</button>
+    <button class="btn" id="exportBtn">Export Data</button>
+    <button class="btn" id="importBtn" type="button">Import Data</button>
+    <input id="importFile" class="hidden" type="file" accept=".json,application/json">
     <button class="btn danger" id="resetBtn">Reset All</button>
   </div>
 
@@ -285,6 +288,67 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
     render();
   }
+  function validateImportedRecipes(data){
+    if(!Array.isArray(data)) throw new Error("The JSON must contain a recipe list.");
+    const validStatuses=new Set(["not-made","pending","made","retired"]);
+    const validTypes=new Set(["meat","fish","legumes","pasta","vegetables"]);
+    const validLevels=new Set(["none","trivial","substantial"]);
+    const ids=new Set();
+    return data.map((r,index)=>{
+      const row=index+1;
+      if(!r || typeof r!=="object" || Array.isArray(r)) throw new Error("Recipe "+row+" must be an object.");
+      if(typeof r.id!=="string" || !r.id.trim()) throw new Error("Recipe "+row+" has no valid ID.");
+      if(ids.has(r.id)) throw new Error("Recipe "+row+" repeats an ID.");
+      ids.add(r.id);
+      if(typeof r.name!=="string" || !r.name.trim() || r.name.length>120) throw new Error("Recipe "+row+" has an invalid meal name.");
+      if(typeof r.cuisine!=="string" || !r.cuisine.trim() || r.cuisine.length>80) throw new Error("Recipe "+row+" has an invalid cuisine.");
+      if(!validStatuses.has(r.status)) throw new Error("Recipe "+row+" has an invalid status.");
+      const mainTypes=r.mainTypes ?? [];
+      if(!Array.isArray(mainTypes) || mainTypes.some(t=>!validTypes.has(t)) || new Set(mainTypes).size!==mainTypes.length)
+        throw new Error("Recipe "+row+" has invalid main types.");
+      const meatLevel=r.meatLevel ?? "none";
+      const friedLevel=r.friedLevel ?? "none";
+      if(!validLevels.has(meatLevel) || !validLevels.has(friedLevel)) throw new Error("Recipe "+row+" has an invalid component level.");
+      if(r.soup!==undefined && typeof r.soup!=="boolean") throw new Error("Recipe "+row+" has an invalid soup value.");
+      const claire=Number(r.claire);
+      const rawDifficulty=r.difficulty ?? r.ease ?? 5;
+      const difficulty=Number(rawDifficulty);
+      if(!Number.isInteger(claire) || claire<1 || claire>10) throw new Error("Recipe "+row+" has an invalid Claire rating.");
+      if(!Number.isInteger(difficulty) || difficulty<1 || difficulty>10) throw new Error("Recipe "+row+" has an invalid difficulty.");
+      if(r.notes!==undefined && typeof r.notes!=="string") throw new Error("Recipe "+row+" has invalid notes.");
+      return {id:r.id,name:r.name,cuisine:r.cuisine,status:r.status,mainTypes:mainTypes.slice(),meatLevel,friedLevel,soup:r.soup ?? false,claire,difficulty,notes:r.notes ?? ""};
+    });
+  }
+
+  function exportData(){
+    const blob=new Blob([JSON.stringify(recipes,null,2)+"\n"],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement("a");
+    link.href=url;
+    link.download="dinner-list-backup.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    flash("Recipe data exported.");
+  }
+
+  async function importData(file){
+    try{
+      const parsed=JSON.parse(await file.text());
+      const imported=validateImportedRecipes(parsed);
+      const ok=confirm("Replace all "+recipes.length+" current meal"+(recipes.length===1?"":"s")+" with "+imported.length+" imported meal"+(imported.length===1?"":"s")+"?\n\nThis replaces the complete recipe list.");
+      if(!ok) return;
+      recipes=imported;
+      currentSeven=[];
+      save();
+      renderChooser();
+      flash("Recipe data imported.");
+    }catch(e){
+      alert("Could not import this file: "+(e?.message || "invalid JSON"));
+    }
+  }
+
   function uid(){
     return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2));
   }
@@ -579,6 +643,13 @@
 
   $("cancelBtn").addEventListener("click",()=>{$("mealDialog").close();editingId=null;});
   $("addBtn").addEventListener("click",()=>openMeal());
+  $("exportBtn").addEventListener("click",exportData);
+  $("importBtn").addEventListener("click",()=>$("importFile").click());
+  $("importFile").addEventListener("change",async(e)=>{
+    const file=e.target.files?.[0];
+    e.target.value="";
+    if(file) await importData(file);
+  });
   $("showAllBtn").addEventListener("click",()=>{$("allPanel").scrollIntoView({behavior:"smooth"});});
   $("chooseBtn").addEventListener("click",chooseSeven);
   $("closeChooserBtn").addEventListener("click",()=>{$("chooserPanel").classList.add("hidden");});
