@@ -88,6 +88,9 @@
   .row-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
   .status-select{border:1px solid var(--line);background:white;border-radius:9px;padding:7px 8px}
   .chooser-note{color:var(--muted);font-size:13px;line-height:1.45;margin:-3px 0 14px}
+  .chooser-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .chooser-controls select{width:auto;flex:1;min-width:180px}
+  .chooser-controls label{font-size:13px}
   .week-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .meal-card{
     border:1px solid var(--line);border-radius:13px;padding:13px;background:#fff;
@@ -167,7 +170,16 @@
     </div>
     <div class="chooser-note">
       Drawn only from Not Made meals. The selector tries to keep fish, fried food, Claire-rating bands,
-      difficulty, spice levels, soups, main types, and cuisines from becoming lopsided later, while avoiding too much repetition within this seven.
+      difficulty, spice levels, lead times, soups, main types, and cuisines from becoming lopsided later, while avoiding too much repetition within this seven.
+      Add a specific Not Made meal below or from the master list to hold it fixed; the remaining slots will be chosen around it.
+    </div>
+    <div class="chooser-controls">
+      <label for="specificMeal">Keep a specific meal</label>
+      <select id="specificMeal" aria-label="Choose a particular Not Made meal">
+        <option value="">Choose a meal…</option>
+      </select>
+      <button class="btn small" type="button" id="pinMealBtn" disabled>Add to 7</button>
+      <span class="tiny" id="fixedCount"></span>
     </div>
     <div class="week-grid" id="weekGrid"></div>
   </section>
@@ -292,6 +304,7 @@
   const STORAGE_KEY = "dinner-list-v1";
   let recipes = load();
   let currentSeven = [];
+  let pinnedIds = new Set();
   let editingId = null;
 
   const $ = (id) => document.getElementById(id);
@@ -376,6 +389,7 @@
       if(!ok) return;
       recipes=imported;
       currentSeven=[];
+      pinnedIds.clear();
       save();
       renderChooser();
       flash("Recipe data imported.");
@@ -477,29 +491,59 @@
     return arr.slice(0,n);
   }
 
-  function chooseSeven(){
-    const pool = recipes.filter(r=>r.status==="not-made");
-    if(pool.length===0){
+  // Manually selected meals are fixed; optimize only the remaining open slots.
+  function chooseSeven(scroll=true){
+    const pool=recipes.filter(r=>r.status==="not-made");
+    const byId=new Map(pool.map(r=>[r.id,r]));
+    pinnedIds=new Set([...pinnedIds].filter(id=>byId.has(id)));
+    if(!pool.length){
       currentSeven=[];
       renderChooser();
+      render();
       flash("No Not Made meals remain.");
       return;
     }
-    const n=Math.min(7,pool.length);
-    let best=null, bestScore=Infinity;
-    const trials = Math.min(2400, Math.max(500, pool.length*8));
-    for(let i=0;i<trials;i++){
-      const set=randomSet(pool,n);
-      const s=scoreSet(set,pool) + Math.random()*.03;
-      if(s<bestScore){bestScore=s;best=set;}
+    const locked=[...pinnedIds].map(id=>byId.get(id));
+    const available=pool.filter(r=>!pinnedIds.has(r.id));
+    const slots=Math.max(0,Math.min(7,pool.length)-locked.length);
+    let best=locked;
+    if(slots>0){
+      let bestScore=Infinity;
+      const trials=Math.min(2400,Math.max(500,pool.length*8));
+      for(let i=0;i<trials;i++){
+        const set=[...locked,...randomSet(available,slots)];
+        const score=scoreSet(set,pool)+Math.random()*.03;
+        if(score<bestScore){bestScore=score;best=set;}
+      }
     }
-    currentSeven=best || randomSet(pool,n);
+    currentSeven=best;
     $("chooserPanel").classList.remove("hidden");
     renderChooser();
-    $("chooserPanel").scrollIntoView({behavior:"smooth",block:"start"});
+    render();
+    if(scroll) $("chooserPanel").scrollIntoView({behavior:"smooth",block:"start"});
+  }
+
+  function pinMeal(id){
+    const meal=recipes.find(r=>r.id===id);
+    if(!meal || meal.status!=="not-made"){
+      flash("Only Not Made meals can be added.");
+      return;
+    }
+    if(pinnedIds.has(id)){flash("That meal is already fixed in the menu.");return;}
+    if(pinnedIds.size>=7){flash("Unpin a meal before adding another.");return;}
+    pinnedIds.add(id);
+    chooseSeven();
+  }
+
+  function unpinMeal(id){
+    if(!pinnedIds.delete(id)) return;
+    renderChooser();
+    render();
+    flash("Meal unpinned; it can now be mulliganed.");
   }
 
   function mulliganOne(index){
+    if(!currentSeven[index] || pinnedIds.has(currentSeven[index].id)){flash("Unpin this meal before mulliganing it.");return;}
     const pool = recipes.filter(r=>r.status==="not-made");
     const fixed = currentSeven.filter((_,i)=>i!==index);
     const used = new Set(fixed.map(r=>r.id));
@@ -518,9 +562,10 @@
     const ids=new Set(currentSeven.map(r=>r.id));
     recipes=recipes.map(r=>ids.has(r.id)?{...r,status:"pending"}:r);
     currentSeven=[];
+    pinnedIds.clear();
     save();
     renderChooser();
-    flash("Seven meals marked Pending.");
+    flash(ids.size+" meal"+(ids.size===1?"":"s")+" marked Pending.");
   }
 
   function describe(r){
@@ -554,9 +599,15 @@
   }
 
   function renderChooser(){
+    const choices=recipes.filter(r=>r.status==="not-made" && !pinnedIds.has(r.id))
+      .sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:"base"}));
+    $("specificMeal").innerHTML='<option value="">Choose a meal…</option>'+
+      choices.map(r=>`<option value="${esc(r.id)}">${esc(r.name)} — ${esc(r.cuisine)}</option>`).join("");
+    $("pinMealBtn").disabled=true;
+    $("fixedCount").textContent=pinnedIds.size+" fixed of 7";
     const grid=$("weekGrid");
     if(!currentSeven.length){
-      grid.innerHTML='<div class="empty" style="grid-column:1/-1">Press <b>Choose 7 Meals</b> to make a list.</div>';
+      grid.innerHTML='<div class="empty" style="grid-column:1/-1">Choose a specific meal or press <b>Choose 7 Meals</b> to start.</div>';
       $("acceptSevenBtn").disabled=true;
       return;
     }
@@ -568,12 +619,15 @@
             <h3>${esc(r.name)}</h3>
             <div class="tiny">${esc(r.cuisine)}</div>
           </div>
-          <span class="pill">${i+1}</span>
+          <span class="pill">${pinnedIds.has(r.id) ? "Fixed" : i+1}</span>
         </div>
         <div class="tags">${describe(r).map(x=>`<span class="pill">${esc(x)}</span>`).join("")}</div>
         <div class="why">${esc(reasonText(r))}</div>
         <div class="actions">
-          <button class="btn small" onclick="window.__mulligan(${i})">Mulligan</button>
+          ${pinnedIds.has(r.id)
+            ? `<button class="btn small ghost" data-unpin-id="${esc(r.id)}">Unpin</button>`
+            : `<button class="btn small" data-pin-id="${esc(r.id)}">Keep</button>
+               <button class="btn small" onclick="window.__mulligan(${i})">Mulligan</button>`}
           <button class="btn small ghost" onclick="window.__edit('${r.id}')">Edit</button>
         </div>
       </div>
@@ -623,6 +677,9 @@
               <option value="retired" ${r.status==="retired"?"selected":""}>Made — don’t make again</option>
             </select>
             <button class="btn small" onclick="window.__edit('${r.id}')">Edit</button>
+            ${r.status==="not-made"
+              ? `<button class="btn small" data-pin-id="${esc(r.id)}" ${pinnedIds.has(r.id)?"disabled":""}>${pinnedIds.has(r.id)?"Fixed":"Add to 7"}</button>`
+              : ""}
             <button class="btn small danger" data-delete-id="${esc(r.id)}">Delete</button>
           </div>
         </div>
@@ -661,18 +718,24 @@
     const meal=recipes.find(r=>r.id===id);
     if(!meal) return;
     if(!confirm('Permanently delete "'+meal.name+'"?\n\nThis cannot be undone without a backup.')) return;
+    const wasSelected=currentSeven.some(r=>r.id===id);
     recipes=recipes.filter(r=>r.id!==id);
+    pinnedIds.delete(id);
     currentSeven=currentSeven.filter(r=>r.id!==id);
     save();
-    renderChooser();
+    if(wasSelected && !$("chooserPanel").classList.contains("hidden")) chooseSeven(false);
+    else renderChooser();
     flash("Meal deleted.");
   }
 
   function updateStatus(id,status){
+    const wasSelected=currentSeven.some(r=>r.id===id);
     recipes=recipes.map(r=>r.id===id?{...r,status}:r);
+    if(status!=="not-made") pinnedIds.delete(id);
     currentSeven=currentSeven.filter(r=>r.id!==id || status==="not-made");
     save();
-    renderChooser();
+    if(wasSelected && status!=="not-made" && !$("chooserPanel").classList.contains("hidden")) chooseSeven(false);
+    else renderChooser();
   }
 
   $("mealForm").addEventListener("submit",(e)=>{
@@ -702,11 +765,13 @@
       recipes=recipes.map(r=>r.id===editingId?recipe:r);
       currentSeven=currentSeven.map(r=>r.id===editingId?recipe:r);
       currentSeven=currentSeven.filter(r=>r.status==="not-made");
+      if(recipe.status!=="not-made") pinnedIds.delete(editingId);
     }else{
       recipes.push(recipe);
     }
     save();
-    renderChooser();
+    if(currentSeven.length && !$("chooserPanel").classList.contains("hidden") && currentSeven.length<Math.min(7,recipes.filter(r=>r.status==="not-made").length)) chooseSeven(false);
+    else renderChooser();
     $("mealDialog").close();
     flash(editingId ? "Meal updated." : "Meal added.");
     editingId=null;
@@ -715,8 +780,22 @@
   $("cancelBtn").addEventListener("click",()=>{$("mealDialog").close();editingId=null;});
   $("addBtn").addEventListener("click",()=>openMeal());
   $("recipeList").addEventListener("click",(e)=>{
-    const button=e.target.closest("button[data-delete-id]");
-    if(button) deleteMeal(button.dataset.deleteId);
+    const del=e.target.closest("button[data-delete-id]");
+    const pin=e.target.closest("button[data-pin-id]");
+    if(del) deleteMeal(del.dataset.deleteId);
+    else if(pin) pinMeal(pin.dataset.pinId);
+  });
+  $("weekGrid").addEventListener("click",(e)=>{
+    const pin=e.target.closest("button[data-pin-id]");
+    const unpin=e.target.closest("button[data-unpin-id]");
+    if(pin) pinMeal(pin.dataset.pinId);
+    else if(unpin) unpinMeal(unpin.dataset.unpinId);
+  });
+  $("specificMeal").addEventListener("change",()=>{
+    $("pinMealBtn").disabled=!$("specificMeal").value || pinnedIds.size>=7;
+  });
+  $("pinMealBtn").addEventListener("click",()=>{
+    if($("specificMeal").value) pinMeal($("specificMeal").value);
   });
   $("exportBtn").addEventListener("click",exportData);
   $("importBtn").addEventListener("click",()=>$("importFile").click());
@@ -741,6 +820,7 @@
     if(!ok) return;
     recipes=recipes.filter(r=>r.status!=="retired").map(r=>({...r,status:"not-made"}));
     currentSeven=[];
+    pinnedIds.clear();
     save();
     renderChooser();
     flash(retiredCount
