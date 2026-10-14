@@ -79,12 +79,13 @@
     gap:12px;align-items:center;padding:11px 10px;border-top:1px solid #ece7de;border-radius:10px
   }
   .recipe-row.status-pending{background:#fbf0d4}
-  .recipe-row.status-made,.recipe-row.status-retired{background:#e6f0e8}
+  .recipe-row.status-made{background:#e6f0e8}
+  .recipe-row.status-retired{background:#f8e5e4}
   .recipe-row:first-of-type{border-top:0}
   .recipe-name{font-weight:720}
   .recipe-notes{font-size:12px;color:var(--muted);margin-top:4px}
   .tags{display:flex;gap:6px;flex-wrap:wrap}
-  .row-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+  .row-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
   .status-select{border:1px solid var(--line);background:white;border-radius:9px;padding:7px 8px}
   .chooser-note{color:var(--muted);font-size:13px;line-height:1.45;margin:-3px 0 14px}
   .week-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
@@ -95,7 +96,7 @@
   .meal-card .meal-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
   .meal-card h3{margin:0;font-family:Georgia,serif;font-size:19px}
   .meal-card .why{color:var(--muted);font-size:12px;line-height:1.35}
-  .meal-card .actions{margin-top:auto;display:flex;gap:6px}
+  .meal-card .actions{margin-top:auto;display:flex;gap:6px;flex-wrap:wrap}
   dialog{
     border:0;border-radius:18px;padding:0;box-shadow:0 30px 80px rgba(20,15,10,.28);
     width:min(700px,calc(100vw - 24px));max-height:calc(100vh - 40px)
@@ -140,7 +141,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.10</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.11</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -208,6 +209,7 @@
           <label class="check"><input type="checkbox" name="mainType" value="meat"> Meat</label>
           <label class="check"><input type="checkbox" name="mainType" value="fish"> Fish</label>
           <label class="check"><input type="checkbox" name="mainType" value="eggs"> Eggs</label>
+          <label class="check"><input type="checkbox" name="mainType" value="cheese"> Cheese</label>
           <label class="check"><input type="checkbox" name="mainType" value="legumes"> Legumes</label>
           <label class="check"><input type="checkbox" name="mainType" value="pasta"> Pasta</label>
           <label class="check"><input type="checkbox" name="mainType" value="vegetables"> Vegetables</label>
@@ -244,6 +246,15 @@
         <select id="soup">
           <option value="no">No</option>
           <option value="yes">Yes</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="leadTime">Lead time</label>
+        <select id="leadTime">
+          <option value="day-ahead">At least a day in advance</option>
+          <option value="many-hours">Many hours</option>
+          <option value="couple-hours" selected>A couple of hours</option>
+          <option value="last-minute">Last minute</option>
         </select>
       </div>
       <div class="field">
@@ -308,9 +319,10 @@
   function validateImportedRecipes(data){
     if(!Array.isArray(data)) throw new Error("The JSON must contain a recipe list.");
     const validStatuses=new Set(["not-made","pending","made","retired"]);
-    const validTypes=new Set(["meat","fish","eggs","legumes","pasta","vegetables"]);
+    const validTypes=new Set(["meat","fish","eggs","cheese","legumes","pasta","vegetables"]);
     const validLevels=new Set(["none","trivial","substantial"]);
     const validSpice=new Set(["bland","medium","spicy"]);
+    const validLeadTimes=new Set(["day-ahead","many-hours","couple-hours","last-minute"]);
     const ids=new Set();
     return data.map((r,index)=>{
       const row=index+1;
@@ -331,13 +343,15 @@
       if(r.ai!==undefined && typeof r.ai!=="boolean") throw new Error("Recipe "+row+" has an invalid AI value.");
       const spice=r.spice ?? "medium";
       if(!validSpice.has(spice)) throw new Error("Recipe "+row+" has an invalid spice level.");
+      const leadTime=r.leadTime ?? "couple-hours";
+      if(!validLeadTimes.has(leadTime)) throw new Error("Recipe "+row+" has an invalid lead time.");
       const claire=Number(r.claire);
       const rawDifficulty=r.difficulty ?? r.ease ?? 5;
       const difficulty=Number(rawDifficulty);
       if(!Number.isInteger(claire) || claire<1 || claire>10) throw new Error("Recipe "+row+" has an invalid Claire rating.");
       if(!Number.isInteger(difficulty) || difficulty<1 || difficulty>10) throw new Error("Recipe "+row+" has an invalid difficulty.");
       if(r.notes!==undefined && typeof r.notes!=="string") throw new Error("Recipe "+row+" has invalid notes.");
-      return {id:r.id,name:r.name,cuisine:r.cuisine,status:r.status,mainTypes:mainTypes.slice(),meatLevel,friedLevel,soup:r.soup ?? false,ai:r.ai ?? false,spice,claire,difficulty,notes:r.notes ?? ""};
+      return {id:r.id,name:r.name,cuisine:r.cuisine,status:r.status,mainTypes:mainTypes.slice(),meatLevel,friedLevel,soup:r.soup ?? false,ai:r.ai ?? false,spice,leadTime,claire,difficulty,notes:r.notes ?? ""};
     });
   }
 
@@ -383,6 +397,13 @@
   function ratingBand(n){ return n <= 4 ? "low" : n <= 7 ? "mid" : "high"; }
   function difficultyBand(n){ return n <= 3 ? "easy" : n <= 7 ? "mid" : "hard"; }
   function spiceOf(r){ return r?.spice ?? "medium"; }
+  function leadTimeOf(r){ return r?.leadTime ?? "couple-hours"; }
+  const leadTimeLabels={
+    "day-ahead":"At least a day in advance",
+    "many-hours":"Many hours",
+    "couple-hours":"A couple of hours",
+    "last-minute":"Last minute"
+  };
   function difficultyOf(r){
     if(!r) return 5;
     const n=Number(r.difficulty);
@@ -396,6 +417,7 @@
     f["fried:"+r.friedLevel] = 1;
     f["soup:"+(r.soup ? "yes":"no")] = 1;
     f["spice:"+spiceOf(r)] = 1;
+    f["lead:"+leadTimeOf(r)] = 1;
     f["claire:"+ratingBand(Number(r.claire))] = 1;
     f["difficulty:"+difficultyBand(difficultyOf(r))] = 1;
     return f;
@@ -419,6 +441,7 @@
                      k.startsWith("fried:") ? 1.30 :
                      k.startsWith("claire:") ? 1.25 :
                      k.startsWith("spice:") ? 1.35 :
+                     k.startsWith("lead:") ? 1.05 :
                      k.startsWith("difficulty:") ? 1.1 :
                      k.startsWith("soup:") ? 1.0 : 1.15;
       score += weight * Math.pow(actual-target,2) / Math.max(.6,target);
@@ -507,6 +530,7 @@
     if(r.soup) parts.push("Soup");
     if(r.ai) parts.push("AI");
     if(spiceOf(r)!=="medium") parts.push(titleCase(spiceOf(r)));
+    if(leadTimeOf(r)!=="couple-hours") parts.push(leadTimeLabels[leadTimeOf(r)]);
     parts.push("Claire "+r.claire+"/10");
     parts.push("Difficulty "+difficultyOf(r)+"/10");
     return parts;
@@ -522,6 +546,7 @@
     if(r.friedLevel!=="none") bits.push(r.friedLevel+" fried component");
     if(r.soup) bits.push("soup");
     if(spiceOf(r)!=="medium") bits.push(spiceOf(r)+" meal");
+    if(leadTimeOf(r)!=="couple-hours") bits.push(leadTimeLabels[leadTimeOf(r)].toLowerCase()+" lead time");
     if(Number(r.claire)<=4) bits.push("one of Claire’s lower-rated meals");
     if(difficultyOf(r)<=3) bits.push("an easy meal");
     if(difficultyOf(r)>=8) bits.push("a demanding meal");
@@ -598,9 +623,10 @@
               <option value="retired" ${r.status==="retired"?"selected":""}>Made — don’t make again</option>
             </select>
             <button class="btn small" onclick="window.__edit('${r.id}')">Edit</button>
+            <button class="btn small danger" data-delete-id="${esc(r.id)}">Delete</button>
           </div>
         </div>
-      `).join("")}
+      ).join("")}
     `).join("");
   }
 
@@ -615,6 +641,7 @@
     $("soup").value=r?.soup ? "yes":"no";
     $("ai").checked=!!r?.ai;
     $("spice").value=spiceOf(r);
+    $("leadTime").value=leadTimeOf(r);
     $("claire").value=r?.claire ?? 5;
     $("difficulty").value=difficultyOf(r);
     $("notes").value=r?.notes || "";
@@ -628,6 +655,17 @@
   function edit(id){
     const r=recipes.find(x=>x.id===id);
     if(r) openMeal(r);
+  }
+
+  function deleteMeal(id){
+    const meal=recipes.find(r=>r.id===id);
+    if(!meal) return;
+    if(!confirm('Permanently delete "'+meal.name+'"?\n\nThis cannot be undone without a backup.')) return;
+    recipes=recipes.filter(r=>r.id!==id);
+    currentSeven=currentSeven.filter(r=>r.id!==id);
+    save();
+    renderChooser();
+    flash("Meal deleted.");
   }
 
   function updateStatus(id,status){
@@ -654,6 +692,7 @@
       soup:$("soup").value==="yes",
       ai:$("ai").checked,
       spice:$("spice").value,
+      leadTime:$("leadTime").value,
       claire:Math.max(1,Math.min(10,Number($("claire").value)||5)),
       difficulty:Math.max(1,Math.min(10,Number($("difficulty").value)||5)),
       notes:$("notes").value.trim()
@@ -675,6 +714,10 @@
 
   $("cancelBtn").addEventListener("click",()=>{$("mealDialog").close();editingId=null;});
   $("addBtn").addEventListener("click",()=>openMeal());
+  $("recipeList").addEventListener("click",(e)=>{
+    const button=e.target.closest("button[data-delete-id]");
+    if(button) deleteMeal(button.dataset.deleteId);
+  });
   $("exportBtn").addEventListener("click",exportData);
   $("importBtn").addEventListener("click",()=>$("importFile").click());
   $("importFile").addEventListener("change",async(e)=>{
