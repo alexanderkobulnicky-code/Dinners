@@ -201,7 +201,7 @@
       <h2>Emergency Meals</h2>
       <span class="pill emergency" id="emergencyCount"></span>
     </div>
-    <p class="chooser-note">Meals you can make when a plan falls through. Reserves stay out of random seven-meal selections, but you can add an unused one yourself.</p>
+    <p class="chooser-note">Meals you can make when a plan falls through. Reserves stay out of random seven-meal selections, but you can add an unused one yourself. Retired recipes are not listed here.</p>
     <div id="emergencyList"></div>
   </section>
 </div>
@@ -724,7 +724,7 @@
       <span class="pill made">${counts.made} Made</span>
       <span class="pill retired">${counts.retired} Don’t make again</span>
     `;
-    const emergencies=recipes.filter(r=>r.emergency);
+    const emergencies=recipes.filter(r=>r.emergency && r.status!=="retired");
     $("emergencyCount").textContent=emergencies.length+" reserve"+(emergencies.length===1?"":"s");
     renderRecipesInto("recipeList",recipes,"No recipes yet. Use Add Meal to enter the first one.");
     renderRecipesInto("emergencyList",emergencies,"No emergency meals yet. Edit a recipe and check Emergency meal to add it here.");
