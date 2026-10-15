@@ -45,7 +45,7 @@
   .sub{color:var(--muted);font-size:14px}
   .count{font-size:13px;color:var(--muted);text-align:right}
   .toolbar{
-    display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:16px 0 22px
+    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0 22px
   }
   .btn{
     border:1px solid var(--line);background:var(--panel);color:var(--ink);
@@ -70,6 +70,7 @@
   .pill.pending{background:#fbf0d4;color:#6d4e11;border-color:#ead7a5}
   .pill.made{background:#e6f0e8;color:#31573a;border-color:#cddfce}
   .pill.retired{background:#f3e3df;color:#7a3c31;border-color:#dfc1ba}
+  .pill.emergency{background:#e4f1ff;color:#254e72;border-color:#c6ddf4}
   .empty{
     color:var(--muted);text-align:center;padding:34px 12px;border:1px dashed var(--line);border-radius:12px
   }
@@ -79,6 +80,8 @@
     gap:12px;align-items:center;padding:11px 10px;border-top:1px solid #ece7de;border-radius:10px
   }
   .recipe-row.status-pending{background:#fbf0d4}
+  /* Unmade reserves are blue, even when pending; made ones remain green. */
+  .recipe-row.status-not-made.emergency,.recipe-row.status-pending.emergency{background:#e5f1ff}
   .recipe-row.status-made{background:#e6f0e8}
   .recipe-row.status-retired{background:#f8e5e4}
   .recipe-row:first-of-type{border-top:0}
@@ -144,13 +147,14 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.11</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.12</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
 
   <div class="toolbar">
     <button class="btn" id="showAllBtn">All Recipes</button>
+    <button class="btn" id="showEmergencyBtn">Emergency Meals</button>
     <button class="btn primary" id="chooseBtn">Choose 7 Meals</button>
     <button class="btn" id="addBtn">Add Meal</button>
     <button class="btn" id="exportBtn">Export Data</button>
@@ -169,7 +173,7 @@
       </div>
     </div>
     <div class="chooser-note">
-      Drawn only from Not Made meals. The selector tries to keep fish, fried food, Claire-rating bands,
+      Drawn from regular Not Made meals, excluding emergency reserves unless you add them yourself. The selector tries to keep fish, fried food, Claire-rating bands,
       difficulty, spice levels, lead times, soups, main types, and cuisines from becoming lopsided later, while avoiding too much repetition within this seven.
       Add a specific Not Made meal below or from the master list to hold it fixed; the remaining slots will be chosen around it.
     </div>
@@ -190,6 +194,15 @@
       <div class="status-summary" id="statusSummary"></div>
     </div>
     <div id="recipeList"></div>
+  </section>
+
+  <section class="panel hidden" id="emergencyPanel">
+    <div class="panel-head">
+      <h2>Emergency Meals</h2>
+      <span class="pill emergency" id="emergencyCount"></span>
+    </div>
+    <p class="chooser-note">Meals you can make when a plan falls through. Reserves stay out of random seven-meal selections, but you can add an unused one yourself.</p>
+    <div id="emergencyList"></div>
   </section>
 </div>
 
@@ -227,6 +240,14 @@
           <label class="check"><input type="checkbox" name="mainType" value="vegetables"> Vegetables</label>
         </div>
         <div class="tiny">More than one is allowed.</div>
+      </div>
+
+      <div class="field full">
+        <label>Emergency reserve</label>
+        <div class="checkgroup">
+          <label class="check"><input type="checkbox" id="emergency"> Emergency meal</label>
+        </div>
+        <div class="tiny">A reliable fallback: ingredients usually on hand or easy to buy. Excluded from random meal selection.</div>
       </div>
 
       <div class="field full">
@@ -306,6 +327,8 @@
   let currentSeven = [];
   let pinnedIds = new Set();
   let editingId = null;
+  let currentView = "all";
+  let chooserOpen = false;
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
@@ -354,6 +377,7 @@
       if(!validLevels.has(meatLevel) || !validLevels.has(friedLevel)) throw new Error("Recipe "+row+" has an invalid component level.");
       if(r.soup!==undefined && typeof r.soup!=="boolean") throw new Error("Recipe "+row+" has an invalid soup value.");
       if(r.ai!==undefined && typeof r.ai!=="boolean") throw new Error("Recipe "+row+" has an invalid AI value.");
+      if(r.emergency!==undefined && typeof r.emergency!=="boolean") throw new Error("Recipe "+row+" has an invalid emergency value.");
       const spice=r.spice ?? "medium";
       if(!validSpice.has(spice)) throw new Error("Recipe "+row+" has an invalid spice level.");
       const leadTime=r.leadTime ?? "couple-hours";
@@ -364,7 +388,7 @@
       if(!Number.isInteger(claire) || claire<1 || claire>10) throw new Error("Recipe "+row+" has an invalid Claire rating.");
       if(!Number.isInteger(difficulty) || difficulty<1 || difficulty>10) throw new Error("Recipe "+row+" has an invalid difficulty.");
       if(r.notes!==undefined && typeof r.notes!=="string") throw new Error("Recipe "+row+" has invalid notes.");
-      return {id:r.id,name:r.name,cuisine:r.cuisine,status:r.status,mainTypes:mainTypes.slice(),meatLevel,friedLevel,soup:r.soup ?? false,ai:r.ai ?? false,spice,leadTime,claire,difficulty,notes:r.notes ?? ""};
+      return {id:r.id,name:r.name,cuisine:r.cuisine,status:r.status,mainTypes:mainTypes.slice(),meatLevel,friedLevel,soup:r.soup ?? false,ai:r.ai ?? false,emergency:r.emergency ?? false,spice,leadTime,claire,difficulty,notes:r.notes ?? ""};
     });
   }
 
@@ -491,35 +515,40 @@
     return arr.slice(0,n);
   }
 
-  // Manually selected meals are fixed; optimize only the remaining open slots.
+  // Random draws use only ordinary Not Made meals. An emergency meal is included
+  // only when the user explicitly pins it to the proposed menu.
   function chooseSeven(scroll=true){
-    const pool=recipes.filter(r=>r.status==="not-made");
-    const byId=new Map(pool.map(r=>[r.id,r]));
+    const manualPool=recipes.filter(r=>r.status==="not-made");
+    const regularPool=manualPool.filter(r=>!r.emergency);
+    const byId=new Map(manualPool.map(r=>[r.id,r]));
     pinnedIds=new Set([...pinnedIds].filter(id=>byId.has(id)));
-    if(!pool.length){
+    const locked=[...pinnedIds].map(id=>byId.get(id));
+    const available=regularPool.filter(r=>!pinnedIds.has(r.id));
+    const slots=Math.min(7-locked.length,available.length);
+    if(!locked.length && !available.length){
       currentSeven=[];
+      chooserOpen=true;
+      showView("all");
       renderChooser();
-      render();
-      flash("No Not Made meals remain.");
+      flash("No regular Not Made meals remain. You can add an emergency meal manually.");
       return;
     }
-    const locked=[...pinnedIds].map(id=>byId.get(id));
-    const available=pool.filter(r=>!pinnedIds.has(r.id));
-    const slots=Math.max(0,Math.min(7,pool.length)-locked.length);
+    // Include manually selected reserves in the scoring context, not the draw pool.
+    const scoringPool=[...regularPool,...locked.filter(r=>r.emergency)];
     let best=locked;
     if(slots>0){
       let bestScore=Infinity;
-      const trials=Math.min(2400,Math.max(500,pool.length*8));
+      const trials=Math.min(2400,Math.max(500,regularPool.length*8));
       for(let i=0;i<trials;i++){
         const set=[...locked,...randomSet(available,slots)];
-        const score=scoreSet(set,pool)+Math.random()*.03;
+        const score=scoreSet(set,scoringPool)+Math.random()*.03;
         if(score<bestScore){bestScore=score;best=set;}
       }
     }
     currentSeven=best;
-    $("chooserPanel").classList.remove("hidden");
+    chooserOpen=true;
+    showView("all");
     renderChooser();
-    render();
     if(scroll) $("chooserPanel").scrollIntoView({behavior:"smooth",block:"start"});
   }
 
@@ -544,13 +573,14 @@
 
   function mulliganOne(index){
     if(!currentSeven[index] || pinnedIds.has(currentSeven[index].id)){flash("Unpin this meal before mulliganing it.");return;}
-    const pool = recipes.filter(r=>r.status==="not-made");
+    const pool = recipes.filter(r=>r.status==="not-made" && !r.emergency);
     const fixed = currentSeven.filter((_,i)=>i!==index);
     const used = new Set(fixed.map(r=>r.id));
     const candidates = pool.filter(r=>!used.has(r.id) && r.id!==currentSeven[index].id);
     if(!candidates.length){ flash("No alternative meal is available."); return; }
 
-    let scored = candidates.map(r => ({r, s:scoreSet([...fixed,r],pool)+Math.random()*.05}))
+    const scoringPool=[...pool,...fixed.filter(r=>r.emergency)];
+    let scored = candidates.map(r => ({r, s:scoreSet([...fixed,r],scoringPool)+Math.random()*.05}))
                            .sort((a,b)=>a.s-b.s);
     const choice = scored[Math.floor(Math.random()*Math.min(5,scored.length))].r;
     currentSeven[index]=choice;
@@ -574,6 +604,7 @@
     if(r.friedLevel!=="none") parts.push(titleCase(r.friedLevel)+" fried");
     if(r.soup) parts.push("Soup");
     if(r.ai) parts.push("AI");
+    if(r.emergency) parts.push("Emergency");
     if(spiceOf(r)!=="medium") parts.push(titleCase(spiceOf(r)));
     if(leadTimeOf(r)!=="couple-hours") parts.push(leadTimeLabels[leadTimeOf(r)]);
     parts.push("Claire "+r.claire+"/10");
@@ -602,7 +633,7 @@
     const choices=recipes.filter(r=>r.status==="not-made" && !pinnedIds.has(r.id))
       .sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:"base"}));
     $("specificMeal").innerHTML='<option value="">Choose a meal…</option>'+
-      choices.map(r=>`<option value="${esc(r.id)}">${esc(r.name)} — ${esc(r.cuisine)}</option>`).join("");
+      choices.map(r=>`<option value="${esc(r.id)}">${esc(r.name)} — ${esc(r.cuisine)}${r.emergency?" (Emergency)":""}</option>`).join("");
     $("pinMealBtn").disabled=true;
     $("fixedCount").textContent=pinnedIds.size+" fixed of 7";
     const grid=$("weekGrid");
@@ -634,24 +665,21 @@
     `).join("");
   }
 
-  function render(){
-    const counts={ "not-made":0, pending:0, made:0, retired:0 };
-    for(const r of recipes) counts[r.status]=(counts[r.status]||0)+1;
-    $("summaryCount").textContent = `${recipes.length} meal${recipes.length===1?"":"s"} · ${counts["not-made"]} not made`;
-    $("statusSummary").innerHTML = `
-      <span class="pill">${counts["not-made"]} Not Made</span>
-      <span class="pill pending">${counts.pending} Pending</span>
-      <span class="pill made">${counts.made} Made</span>
-      <span class="pill retired">${counts.retired} Don’t make again</span>
-    `;
+  function showView(view){
+    currentView=view;
+    $("allPanel").classList.toggle("hidden",view!=="all");
+    $("emergencyPanel").classList.toggle("hidden",view!=="emergency");
+    $("chooserPanel").classList.toggle("hidden",view!=="all" || !chooserOpen);
+  }
 
-    if(!recipes.length){
-      $("recipeList").innerHTML='<div class="empty">No recipes yet. Use <b>Add Meal</b> to enter the first one.</div>';
+  function renderRecipesInto(containerId,items,emptyMessage){
+    const container=$(containerId);
+    if(!items.length){
+      container.innerHTML='<div class="empty">'+esc(emptyMessage)+'</div>';
       return;
     }
-
     const grouped={};
-    const sorted=recipes.slice().sort((a,b)=>
+    const sorted=items.slice().sort((a,b)=>
       a.cuisine.localeCompare(b.cuisine,undefined,{sensitivity:"base"}) ||
       a.name.localeCompare(b.name,undefined,{sensitivity:"base"})
     );
@@ -659,24 +687,23 @@
       const key=r.cuisine || "Uncategorized";
       (grouped[key] ||= []).push(r);
     }
-
-    $("recipeList").innerHTML=Object.entries(grouped).map(([cuisine,items])=>`
+    container.innerHTML=Object.entries(grouped).map(([cuisine,group])=>`
       <div class="cuisine">${esc(cuisine)}</div>
-      ${items.map(r=>`
-        <div class="recipe-row status-${esc(r.status)}">
+      ${group.map(r=>`
+        <div class="recipe-row status-${esc(r.status)}${r.emergency?" emergency":""}">
           <div>
             <div class="recipe-name">${esc(r.name)}</div>
             ${r.notes ? `<div class="recipe-notes">${esc(r.notes)}</div>` : ""}
           </div>
-          <div class="tags">${describe(r).map(x=>`<span class="pill">${esc(x)}</span>`).join("")}</div>
+          <div class="tags">${describe(r).map(x=>`<span class="pill${x==="Emergency"?" emergency":""}">${esc(x)}</span>`).join("")}</div>
           <div class="row-actions">
-            <select class="status-select" aria-label="Status for ${esc(r.name)}" onchange="window.__status('${r.id}',this.value)">
+            <select class="status-select" aria-label="Status for ${esc(r.name)}" data-status-id="${esc(r.id)}">
               <option value="not-made" ${r.status==="not-made"?"selected":""}>Not Made</option>
               <option value="pending" ${r.status==="pending"?"selected":""}>Pending</option>
               <option value="made" ${r.status==="made"?"selected":""}>Made</option>
               <option value="retired" ${r.status==="retired"?"selected":""}>Made — don’t make again</option>
             </select>
-            <button class="btn small" onclick="window.__edit('${r.id}')">Edit</button>
+            <button class="btn small" data-edit-id="${esc(r.id)}">Edit</button>
             ${r.status==="not-made"
               ? `<button class="btn small" data-pin-id="${esc(r.id)}" ${pinnedIds.has(r.id)?"disabled":""}>${pinnedIds.has(r.id)?"Fixed":"Add to 7"}</button>`
               : ""}
@@ -685,6 +712,22 @@
         </div>
       `).join("")}
     `).join("");
+  }
+
+  function render(){
+    const counts={"not-made":0,pending:0,made:0,retired:0};
+    for(const r of recipes) counts[r.status]=(counts[r.status]||0)+1;
+    $("summaryCount").textContent=`${recipes.length} meal${recipes.length===1?"":"s"} · ${counts["not-made"]} not made`;
+    $("statusSummary").innerHTML=`
+      <span class="pill">${counts["not-made"]} Not Made</span>
+      <span class="pill pending">${counts.pending} Pending</span>
+      <span class="pill made">${counts.made} Made</span>
+      <span class="pill retired">${counts.retired} Don’t make again</span>
+    `;
+    const emergencies=recipes.filter(r=>r.emergency);
+    $("emergencyCount").textContent=emergencies.length+" reserve"+(emergencies.length===1?"":"s");
+    renderRecipesInto("recipeList",recipes,"No recipes yet. Use Add Meal to enter the first one.");
+    renderRecipesInto("emergencyList",emergencies,"No emergency meals yet. Edit a recipe and check Emergency meal to add it here.");
   }
 
   function openMeal(r=null){
@@ -697,6 +740,7 @@
     $("friedLevel").value=r?.friedLevel || "none";
     $("soup").value=r?.soup ? "yes":"no";
     $("ai").checked=!!r?.ai;
+    $("emergency").checked=!!r?.emergency;
     $("spice").value=spiceOf(r);
     $("leadTime").value=leadTimeOf(r);
     $("claire").value=r?.claire ?? 5;
@@ -754,6 +798,7 @@
       friedLevel:$("friedLevel").value,
       soup:$("soup").value==="yes",
       ai:$("ai").checked,
+      emergency:$("emergency").checked,
       spice:$("spice").value,
       leadTime:$("leadTime").value,
       claire:Math.max(1,Math.min(10,Number($("claire").value)||5)),
@@ -766,11 +811,16 @@
       currentSeven=currentSeven.map(r=>r.id===editingId?recipe:r);
       currentSeven=currentSeven.filter(r=>r.status==="not-made");
       if(recipe.status!=="not-made") pinnedIds.delete(editingId);
+      if(recipe.emergency && !pinnedIds.has(editingId)){
+        currentSeven=currentSeven.filter(r=>r.id!==editingId);
+      }
     }else{
       recipes.push(recipe);
     }
     save();
-    if(currentSeven.length && !$("chooserPanel").classList.contains("hidden") && currentSeven.length<Math.min(7,recipes.filter(r=>r.status==="not-made").length)) chooseSeven(false);
+    const maxSuggested=Math.min(7,recipes.filter(r=>r.status==="not-made"&&!r.emergency).length+
+      [...pinnedIds].filter(id=>recipes.some(r=>r.id===id&&r.status==="not-made"&&r.emergency)).length);
+    if(chooserOpen && currentSeven.length<maxSuggested) chooseSeven(false);
     else renderChooser();
     $("mealDialog").close();
     flash(editingId ? "Meal updated." : "Meal added.");
@@ -779,12 +829,22 @@
 
   $("cancelBtn").addEventListener("click",()=>{$("mealDialog").close();editingId=null;});
   $("addBtn").addEventListener("click",()=>openMeal());
-  $("recipeList").addEventListener("click",(e)=>{
+  function handleRecipeClick(e){
     const del=e.target.closest("button[data-delete-id]");
     const pin=e.target.closest("button[data-pin-id]");
+    const editButton=e.target.closest("button[data-edit-id]");
     if(del) deleteMeal(del.dataset.deleteId);
     else if(pin) pinMeal(pin.dataset.pinId);
-  });
+    else if(editButton) edit(editButton.dataset.editId);
+  }
+  function handleRecipeStatus(e){
+    const input=e.target.closest("select[data-status-id]");
+    if(input) updateStatus(input.dataset.statusId,input.value);
+  }
+  for(const listId of ["recipeList","emergencyList"]){
+    $(listId).addEventListener("click",handleRecipeClick);
+    $(listId).addEventListener("change",handleRecipeStatus);
+  }
   $("weekGrid").addEventListener("click",(e)=>{
     const pin=e.target.closest("button[data-pin-id]");
     const unpin=e.target.closest("button[data-unpin-id]");
@@ -804,9 +864,16 @@
     e.target.value="";
     if(file) await importData(file);
   });
-  $("showAllBtn").addEventListener("click",()=>{$("allPanel").scrollIntoView({behavior:"smooth"});});
+  $("showAllBtn").addEventListener("click",()=>{
+    showView("all");
+    $("allPanel").scrollIntoView({behavior:"smooth"});
+  });
+  $("showEmergencyBtn").addEventListener("click",()=>{
+    showView("emergency");
+    $("emergencyPanel").scrollIntoView({behavior:"smooth"});
+  });
   $("chooseBtn").addEventListener("click",chooseSeven);
-  $("closeChooserBtn").addEventListener("click",()=>{$("chooserPanel").classList.add("hidden");});
+  $("closeChooserBtn").addEventListener("click",()=>{chooserOpen=false;showView("all");});
   $("newSevenBtn").addEventListener("click",chooseSeven);
   $("acceptSevenBtn").addEventListener("click",acceptSeven);
 
@@ -834,6 +901,7 @@
 
   render();
   renderChooser();
+  showView("all");
 })();
 </script>
 </body>
