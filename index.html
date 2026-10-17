@@ -95,6 +95,16 @@
   .chooser-controls select{width:auto;flex:1;min-width:180px}
   .chooser-controls label{font-size:13px}
   .week-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .pending-list{display:grid;gap:10px}
+  .pending-meal{background:#fbf0d4;border:1px solid #ead7a5;border-radius:13px;padding:14px;display:grid;gap:10px}
+  .pending-meal h3{font-family:Georgia,serif;font-size:19px;margin:0}
+  .pending-meal .details{display:flex;gap:8px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+  .pending-meal .pending-actions{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}
+  .pending-meal .date-field{display:flex;flex-direction:column;gap:4px;min-width:165px}
+  .pending-meal input[type="date"]{min-height:39px}
+  .pending-meal .date-field label{font-size:12px}
+  .pending-meal .pending-actions .btn{min-height:38px}
+  .pending-meal .date-field input{width:180px;max-width:100%}
   .meal-card{
     border:1px solid var(--line);border-radius:13px;padding:13px;background:#fff;
     display:flex;flex-direction:column;gap:9px;min-height:145px
@@ -147,13 +157,14 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.12</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.13</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
 
   <div class="toolbar">
     <button class="btn" id="showAllBtn">All Recipes</button>
+    <button class="btn" id="showPendingBtn">Pending Meals</button>
     <button class="btn" id="showEmergencyBtn">Emergency Meals</button>
     <button class="btn primary" id="chooseBtn">Choose 7 Meals</button>
     <button class="btn" id="addBtn">Add Meal</button>
@@ -194,6 +205,15 @@
       <div class="status-summary" id="statusSummary"></div>
     </div>
     <div id="recipeList"></div>
+  </section>
+
+  <section class="panel hidden" id="pendingPanel">
+    <div class="panel-head">
+      <h2>Pending Meals</h2>
+      <span class="pill pending" id="pendingCount"></span>
+    </div>
+    <p class="chooser-note">Your meals waiting to be cooked. Assign a date if you wish; dated meals appear first. Mark a meal Made when you've cooked it, or return it to Not Made if your plans change.</p>
+    <div class="pending-list" id="pendingList"></div>
   </section>
 
   <section class="panel hidden" id="emergencyPanel">
@@ -359,6 +379,9 @@
     const validLevels=new Set(["none","trivial","substantial"]);
     const validSpice=new Set(["bland","medium","spicy"]);
     const validLeadTimes=new Set(["day-ahead","many-hours","couple-hours","last-minute"]);
+    const validDate=value=>!value || (/^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      !Number.isNaN(new Date(value+"T00:00:00Z").getTime()) &&
+      new Date(value+"T00:00:00Z").toISOString().slice(0,10)===value);
     const ids=new Set();
     return data.map((r,index)=>{
       const row=index+1;
@@ -382,13 +405,15 @@
       if(!validSpice.has(spice)) throw new Error("Recipe "+row+" has an invalid spice level.");
       const leadTime=r.leadTime ?? "couple-hours";
       if(!validLeadTimes.has(leadTime)) throw new Error("Recipe "+row+" has an invalid lead time.");
+      const plannedDate=r.status==="pending" ? (r.plannedDate ?? "") : "";
+      if(typeof plannedDate!=="string" || !validDate(plannedDate)) throw new Error("Recipe "+row+" has an invalid planned date.");
       const claire=Number(r.claire);
       const rawDifficulty=r.difficulty ?? r.ease ?? 5;
       const difficulty=Number(rawDifficulty);
       if(!Number.isInteger(claire) || claire<1 || claire>10) throw new Error("Recipe "+row+" has an invalid Claire rating.");
       if(!Number.isInteger(difficulty) || difficulty<1 || difficulty>10) throw new Error("Recipe "+row+" has an invalid difficulty.");
       if(r.notes!==undefined && typeof r.notes!=="string") throw new Error("Recipe "+row+" has invalid notes.");
-      return {id:r.id,name:r.name,cuisine:r.cuisine,status:r.status,mainTypes:mainTypes.slice(),meatLevel,friedLevel,soup:r.soup ?? false,ai:r.ai ?? false,emergency:r.emergency ?? false,spice,leadTime,claire,difficulty,notes:r.notes ?? ""};
+      return {id:r.id,name:r.name,cuisine:r.cuisine,status:r.status,mainTypes:mainTypes.slice(),meatLevel,friedLevel,soup:r.soup ?? false,ai:r.ai ?? false,emergency:r.emergency ?? false,spice,leadTime,plannedDate,claire,difficulty,notes:r.notes ?? ""};
     });
   }
 
@@ -590,11 +615,14 @@
   function acceptSeven(){
     if(!currentSeven.length) return;
     const ids=new Set(currentSeven.map(r=>r.id));
-    recipes=recipes.map(r=>ids.has(r.id)?{...r,status:"pending"}:r);
+    recipes=recipes.map(r=>ids.has(r.id)?{...r,status:"pending",plannedDate:""}:r);
     currentSeven=[];
     pinnedIds.clear();
     save();
     renderChooser();
+    chooserOpen=false;
+    showView("pending");
+    $("pendingPanel").scrollIntoView({behavior:"smooth",block:"start"});
     flash(ids.size+" meal"+(ids.size===1?"":"s")+" marked Pending.");
   }
 
@@ -669,6 +697,7 @@
     currentView=view;
     $("allPanel").classList.toggle("hidden",view!=="all");
     $("emergencyPanel").classList.toggle("hidden",view!=="emergency");
+    $("pendingPanel").classList.toggle("hidden",view!=="pending");
     $("chooserPanel").classList.toggle("hidden",view!=="all" || !chooserOpen);
   }
 
@@ -714,6 +743,48 @@
     `).join("");
   }
 
+  function renderPending(){
+    const pending=recipes.filter(r=>r.status==="pending").sort((a,b)=>
+      (a.plannedDate || "9999-12-31").localeCompare(b.plannedDate || "9999-12-31") ||
+      a.name.localeCompare(b.name,undefined,{sensitivity:"base"})
+    );
+    $("pendingCount").textContent=pending.length+" to cook";
+    $("showPendingBtn").textContent="Pending Meals"+(pending.length?" ("+pending.length+")":"");
+    $("pendingList").innerHTML=pending.length ? pending.map(r=>`
+      <div class="pending-meal">
+        <div class="details">
+          <div>
+            <h3>${esc(r.name)}</h3>
+            <div class="tiny">${esc(r.cuisine)}</div>
+            ${r.notes ? `<div class="recipe-notes">${esc(r.notes)}</div>` : ""}
+          </div>
+          <div class="tags">${describe(r).map(x=>`<span class="pill${x==="Emergency"?" emergency":""}">${esc(x)}</span>`).join("")}</div>
+        </div>
+        <div class="pending-actions">
+          <div class="date-field">
+            <label for="planned-${esc(r.id)}">Cook on (optional)</label>
+            <input type="date" id="planned-${esc(r.id)}" data-planned-id="${esc(r.id)}" value="${esc(r.plannedDate || "")}">
+          </div>
+          ${r.plannedDate ? `<button class="btn small ghost" data-clear-planned-id="${esc(r.id)}">Clear date</button>` : ""}
+          <button class="btn small primary" data-complete-id="${esc(r.id)}">✓ Mark Made</button>
+          <button class="btn small" data-unplan-id="${esc(r.id)}">Return to Not Made</button>
+          <button class="btn small ghost" data-edit-id="${esc(r.id)}">Edit</button>
+        </div>
+      </div>
+    `).join("") : '<div class="empty">No Pending meals right now. Choose 7 Meals to make your next menu, or mark a recipe Pending in All Recipes.</div>';
+  }
+
+  function updatePlannedDate(id,date){
+    const meal=recipes.find(r=>r.id===id && r.status==="pending");
+    if(!meal) return;
+    const valid=!date || (/^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      !Number.isNaN(new Date(date+"T00:00:00Z").getTime()) &&
+      new Date(date+"T00:00:00Z").toISOString().slice(0,10)===date);
+    if(!valid){renderPending();flash("Invalid cooking date.");return;}
+    recipes=recipes.map(r=>r.id===id?{...r,plannedDate:date}:r);
+    save();
+  }
+
   function render(){
     const counts={"not-made":0,pending:0,made:0,retired:0};
     for(const r of recipes) counts[r.status]=(counts[r.status]||0)+1;
@@ -728,6 +799,7 @@
     $("emergencyCount").textContent=emergencies.length+" reserve"+(emergencies.length===1?"":"s");
     renderRecipesInto("recipeList",recipes,"No recipes yet. Use Add Meal to enter the first one.");
     renderRecipesInto("emergencyList",emergencies,"No emergency meals yet. Edit a recipe and check Emergency meal to add it here.");
+    renderPending();
   }
 
   function openMeal(r=null){
@@ -774,7 +846,7 @@
 
   function updateStatus(id,status){
     const wasSelected=currentSeven.some(r=>r.id===id);
-    recipes=recipes.map(r=>r.id===id?{...r,status}:r);
+    recipes=recipes.map(r=>r.id===id?{...r,status,plannedDate:status==="pending"?(r.status==="pending"?(r.plannedDate||""):""):""}:r);
     if(status!=="not-made") pinnedIds.delete(id);
     currentSeven=currentSeven.filter(r=>r.id!==id || status==="not-made");
     save();
@@ -803,6 +875,8 @@
       leadTime:$("leadTime").value,
       claire:Math.max(1,Math.min(10,Number($("claire").value)||5)),
       difficulty:Math.max(1,Math.min(10,Number($("difficulty").value)||5)),
+      plannedDate:$("status").value==="pending" && editingId
+        ? (recipes.find(r=>r.id===editingId)?.plannedDate || "") : "",
       notes:$("notes").value.trim()
     };
 
@@ -841,6 +915,21 @@
     const input=e.target.closest("select[data-status-id]");
     if(input) updateStatus(input.dataset.statusId,input.value);
   }
+  function handlePendingClick(e){
+    const complete=e.target.closest("button[data-complete-id]");
+    const unplan=e.target.closest("button[data-unplan-id]");
+    const clear=e.target.closest("button[data-clear-planned-id]");
+    const editButton=e.target.closest("button[data-edit-id]");
+    if(complete) updateStatus(complete.dataset.completeId,"made");
+    else if(unplan) updateStatus(unplan.dataset.unplanId,"not-made");
+    else if(clear) updatePlannedDate(clear.dataset.clearPlannedId,"");
+    else if(editButton) edit(editButton.dataset.editId);
+  }
+  $("pendingList").addEventListener("click",handlePendingClick);
+  $("pendingList").addEventListener("change",(e)=>{
+    const input=e.target.closest("input[data-planned-id]");
+    if(input) updatePlannedDate(input.dataset.plannedId,input.value);
+  });
   for(const listId of ["recipeList","emergencyList"]){
     $(listId).addEventListener("click",handleRecipeClick);
     $(listId).addEventListener("change",handleRecipeStatus);
@@ -868,6 +957,10 @@
     showView("all");
     $("allPanel").scrollIntoView({behavior:"smooth"});
   });
+  $("showPendingBtn").addEventListener("click",()=>{
+    showView("pending");
+    $("pendingPanel").scrollIntoView({behavior:"smooth"});
+  });
   $("showEmergencyBtn").addEventListener("click",()=>{
     showView("emergency");
     $("emergencyPanel").scrollIntoView({behavior:"smooth"});
@@ -885,7 +978,7 @@
       : "";
     const ok=confirm("Reset the list?\n\nAll remaining meals will be set to Not Made."+deletionNote);
     if(!ok) return;
-    recipes=recipes.filter(r=>r.status!=="retired").map(r=>({...r,status:"not-made"}));
+    recipes=recipes.filter(r=>r.status!=="retired").map(r=>({...r,status:"not-made",plannedDate:""}));
     currentSeven=[];
     pinnedIds.clear();
     save();
