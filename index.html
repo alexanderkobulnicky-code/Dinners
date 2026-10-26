@@ -366,7 +366,7 @@
   const STORAGE_KEY = "dinner-list-v1";
   const PANTRY_KEY = "dinner-perishables-v1";
   let recipes = load();
-  let pantryIngredients = loadPantry();
+  let pantryIngredients = [];
   let currentSeven = [];
   let pinnedIds = new Set();
   let editingId = null;
@@ -425,6 +425,7 @@
   function persistPantry(){
     localStorage.setItem(PANTRY_KEY,JSON.stringify(pantryIngredients));
   }
+  pantryIngredients=loadPantry();
 
   function load(){
     try {
