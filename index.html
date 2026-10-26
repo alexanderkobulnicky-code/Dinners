@@ -141,6 +141,11 @@
     position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#28251f;color:white;
     border-radius:999px;padding:10px 14px;font-size:13px;box-shadow:var(--shadow);z-index:10
   }
+  .pantry-panel{padding:14px 16px}
+  .pantry-panel h2{font-size:20px;margin:0}
+  .pantry-panel .chooser-note{margin:4px 0 10px}
+  .pantry-panel textarea{min-height:56px}
+  .ingredient-hit{color:var(--accent);font-weight:600}
   @media(max-width:720px){
     .toolbar{grid-template-columns:1fr 1fr}
     .recipe-row{grid-template-columns:1fr}
@@ -158,7 +163,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.13</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.14</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -175,6 +180,16 @@
     <button class="btn danger" id="resetBtn">Reset All</button>
   </div>
 
+  <section class="panel pantry-panel" id="pantryPanel">
+    <div class="panel-head">
+      <h2>Perishables on Hand</h2>
+      <button class="btn small ghost" id="clearPantryBtn" type="button">Clear list</button>
+    </div>
+    <p class="chooser-note">Before choosing your seven, list anything fresh you want to use up. Separate ingredients with commas; this list is saved on this device. Empty it when you start a new week.</p>
+    <textarea id="pantryIngredients" rows="2" aria-label="Perishable ingredients on hand" placeholder="Chicken thighs, red bell peppers, cilantro"></textarea>
+    <div class="tiny">Meals sharing perishables get a small preference, but variety still comes first. Enter each recipe's perishables under Edit.</div>
+  </section>
+
   <section class="panel hidden" id="chooserPanel">
     <div class="panel-head">
       <h2>This Week</h2>
@@ -186,7 +201,7 @@
     </div>
     <div class="chooser-note">
       Drawn from regular Not Made meals, excluding emergency reserves unless you add them yourself. The selector tries to keep fish, fried food, Claire-rating bands,
-      difficulty, spice levels, lead times, soups, main types, and cuisines from becoming lopsided later, while avoiding too much repetition within this seven.
+      difficulty, spice levels, lead times, soups, main types, and cuisines from becoming lopsided later, while avoiding too much repetition within this seven. It also gently favors ingredients on hand and meals that share perishables.
       Add a specific Not Made meal below or from the master list to hold it fixed; the remaining slots will be chosen around it.
     </div>
     <div class="chooser-controls">
@@ -328,6 +343,11 @@
         <input id="difficulty" type="number" min="1" max="10" step="1" value="5" required>
       </div>
       <div class="field full">
+        <label for="perishables">Perishable ingredients <span class="tiny">(optional)</span></label>
+        <textarea id="perishables" rows="2" placeholder="Chicken thighs, bell pepper, cilantro"></textarea>
+        <div class="tiny">List only significant fresh ingredients, separated by commas. Case, simple plurals, and common names such as pepper / bell pepper are matched automatically.</div>
+      </div>
+      <div class="field full">
         <label for="notes">Notes <span class="tiny">(optional)</span></label>
         <textarea id="notes"></textarea>
       </div>
@@ -344,7 +364,9 @@
 <script>
 (() => {
   const STORAGE_KEY = "dinner-list-v1";
+  const PANTRY_KEY = "dinner-perishables-v1";
   let recipes = load();
+  let pantryIngredients = loadPantry();
   let currentSeven = [];
   let pinnedIds = new Set();
   let editingId = null;
@@ -353,6 +375,55 @@
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
+
+  // A deliberately small synonym table: avoid matching unrelated foods merely
+  // because their words are similar. "Pepper" means a fresh sweet pepper here.
+  const ingredientAliases = {
+    "pepper":"bell pepper", "peppers":"bell pepper", "sweet pepper":"bell pepper",
+    "capsicum":"bell pepper", "red pepper":"bell pepper", "green pepper":"bell pepper",
+    "yellow pepper":"bell pepper", "orange pepper":"bell pepper",
+    "red bell pepper":"bell pepper", "green bell pepper":"bell pepper",
+    "yellow bell pepper":"bell pepper", "orange bell pepper":"bell pepper",
+    "spring onion":"scallion", "green onion":"scallion",
+    "coriander leaf":"cilantro", "coriander leave":"cilantro",
+    "aubergine":"eggplant", "courgette":"zucchini",
+    "garbanzo bean":"chickpea", "cherry tomato":"cherry tomato"
+  };
+  function ingredientKey(value){
+    let name=String(value ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
+      .toLowerCase().replace(/[^a-z0-9 -]/g," ").replace(/\s+/g," ").trim();
+    if(!name) return "";
+    if(ingredientAliases[name]) return ingredientAliases[name];
+    // Normalize only the last word. In particular, asparagus and cress stay put.
+    const words=name.split(" ");
+    let last=words.pop();
+    if(last.endsWith("ies") && last.length>4) last=last.slice(0,-3)+"y";
+    else if(last.endsWith("oes") && last.length>4) last=last.slice(0,-2);
+    else if(last.endsWith("s") && !last.endsWith("ss") && !last.endsWith("us") && last.length>3) last=last.slice(0,-1);
+    words.push(last);
+    name=words.join(" ");
+    return ingredientAliases[name] || name;
+  }
+  function parseIngredients(raw){
+    const parts=Array.isArray(raw) ? raw : String(raw ?? "").split(",");
+    const seen=new Set();
+    return parts.map(x=>String(x).trim().replace(/\s+/g," ")).filter(x=>{
+      const key=ingredientKey(x);
+      if(!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  function ingredientKeys(r){ return parseIngredients(r?.perishables || []).map(ingredientKey); }
+  function loadPantry(){
+    try {
+      const data=JSON.parse(localStorage.getItem(PANTRY_KEY) || "[]");
+      return Array.isArray(data) ? parseIngredients(data) : [];
+    } catch(e){ return []; }
+  }
+  function persistPantry(){
+    localStorage.setItem(PANTRY_KEY,JSON.stringify(pantryIngredients));
+  }
 
   function load(){
     try {
@@ -414,12 +485,16 @@
       if(!Number.isInteger(claire) || claire<1 || claire>10) throw new Error("Recipe "+row+" has an invalid Claire rating.");
       if(!Number.isInteger(difficulty) || difficulty<1 || difficulty>10) throw new Error("Recipe "+row+" has an invalid difficulty.");
       if(r.notes!==undefined && typeof r.notes!=="string") throw new Error("Recipe "+row+" has invalid notes.");
-      return {id:r.id,name:r.name,cuisine:r.cuisine,status:r.status,mainTypes:mainTypes.slice(),meatLevel,friedLevel,soup:r.soup ?? false,ai:r.ai ?? false,emergency:r.emergency ?? false,spice,leadTime,plannedDate,claire,difficulty,notes:r.notes ?? ""};
+      const perishableTags=r.perishables ?? [];
+      if(!Array.isArray(perishableTags) || perishableTags.length>30 ||
+          perishableTags.some(x=>typeof x!=="string" || !x.trim() || x.length>80 || x.includes(",")))
+        throw new Error("Recipe "+row+" has invalid perishable ingredients.");
+      return {id:r.id,name:r.name,cuisine:r.cuisine,status:r.status,mainTypes:mainTypes.slice(),meatLevel,friedLevel,soup:r.soup ?? false,ai:r.ai ?? false,emergency:r.emergency ?? false,spice,leadTime,plannedDate,claire,difficulty,notes:r.notes ?? "",perishables:parseIngredients(perishableTags)};
     });
   }
 
   function exportData(){
-    const blob=new Blob([JSON.stringify(recipes,null,2)+"\n"],{type:"application/json"});
+    const blob=new Blob([JSON.stringify({version:2,recipes,pantryIngredients},null,2)+"\n"],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const link=document.createElement("a");
     link.href=url;
@@ -434,10 +509,17 @@
   async function importData(file){
     try{
       const parsed=JSON.parse(await file.text());
-      const imported=validateImportedRecipes(parsed);
+      const imported=validateImportedRecipes(Array.isArray(parsed) ? parsed : parsed?.recipes);
+      const importedPantry=Array.isArray(parsed) ? pantryIngredients : parsed.pantryIngredients;
+      if(!Array.isArray(importedPantry) || importedPantry.length>100 ||
+          importedPantry.some(x=>typeof x!=="string" || !x.trim() || x.length>80 || x.includes(",")))
+        throw new Error("The backup has invalid on-hand ingredients.");
       const ok=confirm("Replace all "+recipes.length+" current meal"+(recipes.length===1?"":"s")+" with "+imported.length+" imported meal"+(imported.length===1?"":"s")+"?\n\nThis replaces the complete recipe list.");
       if(!ok) return;
       recipes=imported;
+      pantryIngredients=parseIngredients(importedPantry);
+      persistPantry();
+      $("pantryIngredients").value=pantryIngredients.join(", ");
       currentSeven=[];
       pinnedIds.clear();
       save();
@@ -819,6 +901,7 @@
     $("claire").value=r?.claire ?? 5;
     $("difficulty").value=difficultyOf(r);
     $("notes").value=r?.notes || "";
+    $("perishables").value=(r?.perishables || []).join(", ");
     document.querySelectorAll('input[name="mainType"]').forEach(cb=>{
       cb.checked=(r?.mainTypes || []).includes(cb.value);
     });
@@ -878,7 +961,8 @@
       difficulty:Math.max(1,Math.min(10,Number($("difficulty").value)||5)),
       plannedDate:$("status").value==="pending" && editingId
         ? (recipes.find(r=>r.id===editingId)?.plannedDate || "") : "",
-      notes:$("notes").value.trim()
+      notes:$("notes").value.trim(),
+      perishables:parseIngredients($("perishables").value).slice(0,30)
     };
 
     if(editingId){
@@ -946,6 +1030,19 @@
   });
   $("pinMealBtn").addEventListener("click",()=>{
     if($("specificMeal").value) pinMeal($("specificMeal").value);
+  });
+  $("pantryIngredients").value=pantryIngredients.join(", ");
+  $("pantryIngredients").addEventListener("input",()=>{
+    pantryIngredients=parseIngredients($("pantryIngredients").value).slice(0,100);
+    persistPantry();
+    if(currentSeven.length) renderChooser();
+  });
+  $("clearPantryBtn").addEventListener("click",()=>{
+    pantryIngredients=[];
+    $("pantryIngredients").value="";
+    persistPantry();
+    if(currentSeven.length) renderChooser();
+    flash("On-hand list cleared.");
   });
   $("exportBtn").addEventListener("click",exportData);
   $("importBtn").addEventListener("click",()=>$("importFile").click());
