@@ -783,6 +783,19 @@
     return bits.length ? "Helps distribute: "+bits.join(", ")+"." : "Chosen to keep the remaining list balanced.";
   }
 
+  function ingredientReason(r){
+    const here=ingredientKeys(r);
+    if(!here.length) return "";
+    const pantry=new Set(pantryIngredients.map(ingredientKey));
+    const otherMeals=new Set(currentSeven.filter(x=>x.id!==r.id).flatMap(ingredientKeys));
+    const onHand=here.filter(k=>pantry.has(k));
+    const shared=here.filter(k=>otherMeals.has(k) && !pantry.has(k));
+    const parts=[];
+    if(onHand.length) parts.push("On hand: "+onHand.join(", "));
+    if(shared.length) parts.push("Shared: "+shared.join(", "));
+    return parts.length ? '<div class="why ingredient-hit">'+esc(parts.join(" · "))+'</div>' : "";
+  }
+
   function renderChooser(){
     const choices=recipes.filter(r=>r.status==="not-made" && !pinnedIds.has(r.id))
       .sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:"base"}));
@@ -808,6 +821,7 @@
         </div>
         <div class="tags">${describe(r).map(x=>`<span class="pill">${esc(x)}</span>`).join("")}</div>
         <div class="why">${esc(reasonText(r))}</div>
+        ${ingredientReason(r)}
         <div class="actions">
           ${pinnedIds.has(r.id)
             ? `<button class="btn small ghost" data-unpin-id="${esc(r.id)}">Unpin</button>`
@@ -849,6 +863,7 @@
           <div>
             <div class="recipe-name">${esc(r.name)}</div>
             ${r.notes ? `<div class="recipe-notes">${esc(r.notes)}</div>` : ""}
+            ${(r.perishables||[]).length ? `<div class="recipe-notes">Perishables: ${esc(r.perishables.join(", "))}</div>` : ""}
           </div>
           <div class="tags">${describe(r).map(x=>`<span class="pill${x==="Emergency"?" emergency":""}">${esc(x)}</span>`).join("")}</div>
           <div class="row-actions">
@@ -883,6 +898,7 @@
             <h3>${esc(r.name)}</h3>
             <div class="tiny">${esc(r.cuisine)}</div>
             ${r.notes ? `<div class="recipe-notes">${esc(r.notes)}</div>` : ""}
+            ${(r.perishables||[]).length ? `<div class="recipe-notes">Perishables: ${esc(r.perishables.join(", "))}</div>` : ""}
           </div>
           <div class="tags">${describe(r).map(x=>`<span class="pill${x==="Emergency"?" emergency":""}">${esc(x)}</span>`).join("")}</div>
         </div>
