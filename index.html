@@ -69,7 +69,6 @@
   }
   .pill.pending{background:#fbf0d4;color:#6d4e11;border-color:#ead7a5}
   .pill.made{background:#e6f0e8;color:#31573a;border-color:#cddfce}
-  .pill.retired{background:#f3e3df;color:#7a3c31;border-color:#dfc1ba}
   .pill.emergency{background:#e4f1ff;color:#254e72;border-color:#c6ddf4}
   .empty{
     color:var(--muted);text-align:center;padding:34px 12px;border:1px dashed var(--line);border-radius:12px
@@ -83,7 +82,6 @@
   /* Unmade reserves are blue, even when pending; made ones remain green. */
   .recipe-row.status-not-made.emergency,.recipe-row.status-pending.emergency{background:#e5f1ff}
   .recipe-row.status-made{background:#e6f0e8}
-  .recipe-row.status-retired{background:#f8e5e4}
   .recipe-row:first-of-type{border-top:0}
   .recipe-name{font-weight:720}
   .recipe-notes{font-size:12px;color:var(--muted);margin-top:4px}
@@ -163,7 +161,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.14</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.15</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -237,7 +235,7 @@
       <h2>Emergency Meals</h2>
       <span class="pill emergency" id="emergencyCount"></span>
     </div>
-    <p class="chooser-note">Meals you can make when a plan falls through. Reserves stay out of random seven-meal selections, but you can add an unused one yourself. Retired recipes are not listed here.</p>
+    <p class="chooser-note">Meals you can make when a plan falls through. Reserves stay out of random seven-meal selections, but you can add an unused one yourself.</p>
     <div id="emergencyList"></div>
   </section>
 </div>
@@ -260,7 +258,6 @@
           <option value="not-made">Not Made</option>
           <option value="pending">Pending</option>
           <option value="made">Made</option>
-          <option value="retired">Made — don’t make again</option>
         </select>
       </div>
 
@@ -448,6 +445,7 @@
   }
   function validateImportedRecipes(data){
     if(!Array.isArray(data)) throw new Error("The JSON must contain a recipe list.");
+    // Accept archived statuses from older backups without showing those meals again.
     const validStatuses=new Set(["not-made","pending","made","retired"]);
     const validTypes=new Set(["meat","fish","eggs","cheese","legumes","pasta","vegetables"]);
     const validLevels=new Set(["none","trivial","substantial"]);
@@ -872,7 +870,6 @@
               <option value="not-made" ${r.status==="not-made"?"selected":""}>Not Made</option>
               <option value="pending" ${r.status==="pending"?"selected":""}>Pending</option>
               <option value="made" ${r.status==="made"?"selected":""}>Made</option>
-              <option value="retired" ${r.status==="retired"?"selected":""}>Made — don’t make again</option>
             </select>
             <button class="btn small" data-edit-id="${esc(r.id)}">Edit</button>
             ${r.status==="not-made"
@@ -929,18 +926,20 @@
   }
 
   function render(){
-    const counts={"not-made":0,pending:0,made:0,retired:0};
-    for(const r of recipes) counts[r.status]=(counts[r.status]||0)+1;
-    $("summaryCount").textContent=`${recipes.length} meal${recipes.length===1?"":"s"} · ${counts["not-made"]} not made`;
+    // Legacy retired meals remain in exported backups, but never appear in the app.
+    // This avoids deleting previously saved records during an upgrade.
+    const active=recipes.filter(r=>r.status!=="retired");
+    const counts={"not-made":0,pending:0,made:0};
+    for(const r of active) counts[r.status]=(counts[r.status]||0)+1;
+    $("summaryCount").textContent=`${active.length} meal${active.length===1?"":"s"} · ${counts["not-made"]} not made`;
     $("statusSummary").innerHTML=`
       <span class="pill">${counts["not-made"]} Not Made</span>
       <span class="pill pending">${counts.pending} Pending</span>
       <span class="pill made">${counts.made} Made</span>
-      <span class="pill retired">${counts.retired} Don’t make again</span>
     `;
-    const emergencies=recipes.filter(r=>r.emergency && r.status!=="retired");
+    const emergencies=active.filter(r=>r.emergency);
     $("emergencyCount").textContent=emergencies.length+" reserve"+(emergencies.length===1?"":"s");
-    renderRecipesInto("recipeList",recipes,"No recipes yet. Use Add Meal to enter the first one.");
+    renderRecipesInto("recipeList",active,"No recipes yet. Use Add Meal to enter the first one.");
     renderRecipesInto("emergencyList",emergencies,"No emergency meals yet. Edit a recipe and check Emergency meal to add it here.");
     renderPending();
   }
@@ -1129,21 +1128,15 @@
   $("acceptSevenBtn").addEventListener("click",acceptSeven);
 
   $("resetBtn").addEventListener("click",()=>{
-    if(!recipes.length){flash("There is nothing to reset.");return;}
-    const retiredCount=recipes.filter(r=>r.status==="retired").length;
-    const deletionNote=retiredCount
-      ? `\n\nThis will also permanently delete ${retiredCount} meal${retiredCount===1?"":"s"} marked “Made — don’t make again.”`
-      : "";
-    const ok=confirm("Reset the list?\n\nAll remaining meals will be set to Not Made."+deletionNote);
+    if(!recipes.some(r=>r.status!=="retired")){flash("There is nothing to reset.");return;}
+    const ok=confirm("Reset the list?\n\nAll meals will be set to Not Made.");
     if(!ok) return;
-    recipes=recipes.filter(r=>r.status!=="retired").map(r=>({...r,status:"not-made",plannedDate:""}));
+    recipes=recipes.map(r=>r.status==="retired" ? r : {...r,status:"not-made",plannedDate:""});
     currentSeven=[];
     pinnedIds.clear();
     save();
     renderChooser();
-    flash(retiredCount
-      ? `Reset complete; deleted ${retiredCount} retired meal${retiredCount===1?"":"s"}.`
-      : "All meals reset to Not Made.");
+    flash("All meals reset to Not Made.");
   });
 
   window.__mulligan=mulliganOne;
