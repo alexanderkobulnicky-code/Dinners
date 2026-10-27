@@ -1075,6 +1075,7 @@
       perishables:parseIngredients($("perishables").value).slice(0,30)
     };
 
+    const hadProposal=currentSeven.length>0;
     if(editingId){
       recipes=recipes.map(r=>r.id===editingId?recipe:r);
       currentSeven=currentSeven.map(r=>r.id===editingId?recipe:r);
@@ -1089,7 +1090,7 @@
     save();
     const maxSuggested=Math.min(7,recipes.filter(r=>r.status==="not-made"&&!r.emergency).length+
       [...pinnedIds].filter(id=>recipes.some(r=>r.id===id&&r.status==="not-made"&&r.emergency)).length);
-    if(chooserOpen && currentSeven.length<maxSuggested) chooseSeven(false,true,false);
+    if(hadProposal && currentSeven.length<maxSuggested) chooseSeven(false,true,false);
     else renderChooser();
     $("mealDialog").close();
     flash(editingId ? "Meal updated." : "Meal added.");
