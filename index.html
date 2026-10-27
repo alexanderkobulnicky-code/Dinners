@@ -755,6 +755,16 @@
 
   function unpinMeal(id){
     if(!pinnedIds.delete(id)) return;
+    const meal=recipes.find(r=>r.id===id);
+    if(meal?.emergency){
+      // Emergency reserves can only be chosen manually and kept pinned.
+      // On unpin, replace that one meal rather than storing an invalid draft.
+      currentSeven=currentSeven.filter(r=>r.id!==id);
+      chooseSeven(false,true,false);
+      render();
+      flash("Emergency meal removed; other choices retained.");
+      return;
+    }
     renderChooser();
     render();
     flash("Meal unpinned; it can now be mulliganed.");
