@@ -161,7 +161,7 @@
   <header>
     <div>
       <h1>Dinner List</h1>
-      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.15</span></div>
+      <div class="sub">A sturdier replacement for the notebook. <span class="tiny">v1.16</span></div>
     </div>
     <div class="count" id="summaryCount"></div>
   </header>
@@ -362,10 +362,12 @@
 (() => {
   const STORAGE_KEY = "dinner-list-v1";
   const PANTRY_KEY = "dinner-perishables-v1";
+  const CHOOSER_KEY = "dinner-unfinished-seven-v1";
   let recipes = load();
   let pantryIngredients = [];
-  let currentSeven = [];
-  let pinnedIds = new Set();
+  const savedChooser = loadChooserState();
+  let currentSeven = savedChooser.meals;
+  let pinnedIds = savedChooser.pinned;
   let editingId = null;
   let currentView = "all";
   let chooserOpen = false;
@@ -442,6 +444,31 @@
   function save(){
     localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
     render();
+  }
+  function loadChooserState(){
+    try {
+      const saved=JSON.parse(localStorage.getItem(CHOOSER_KEY) || "{}");
+      const available=new Map(recipes.filter(r=>r.status==="not-made").map(r=>[r.id,r]));
+      const ids=Array.isArray(saved.mealIds) ? saved.mealIds : [];
+      const pinIds=Array.isArray(saved.pinnedIds) ? saved.pinnedIds : [];
+      const pinned=new Set(pinIds.filter(id=>typeof id==="string" && available.has(id)));
+      const seen=new Set();
+      const meals=[];
+      for(const id of [...ids,...pinned]){
+        const meal=available.get(id);
+        if(!meal || seen.has(id) || (meal.emergency && !pinned.has(id))) continue;
+        seen.add(id);
+        meals.push(meal);
+        if(meals.length===7) break;
+      }
+      return {meals,pinned:new Set([...pinned].filter(id=>seen.has(id)))};
+    } catch(e){return {meals:[],pinned:new Set()};}
+  }
+  function persistChooserState(){
+    localStorage.setItem(CHOOSER_KEY,JSON.stringify({
+      mealIds:currentSeven.map(r=>r.id),
+      pinnedIds:[...pinnedIds]
+    }));
   }
   function validateImportedRecipes(data){
     if(!Array.isArray(data)) throw new Error("The JSON must contain a recipe list.");
@@ -644,13 +671,20 @@
 
   // Random draws use only ordinary Not Made meals. An emergency meal is included
   // only when the user explicitly pins it to the proposed menu.
-  function chooseSeven(scroll=true){
+  // A fresh draw is deliberate: reopening the chooser never calls this function.
+  // keepExisting only fills vacancies while preserving the meals under review.
+  function chooseSeven(scroll=true, keepExisting=false){
     const manualPool=recipes.filter(r=>r.status==="not-made");
     const regularPool=manualPool.filter(r=>!r.emergency);
     const byId=new Map(manualPool.map(r=>[r.id,r]));
     pinnedIds=new Set([...pinnedIds].filter(id=>byId.has(id)));
-    const locked=[...pinnedIds].map(id=>byId.get(id));
-    const available=regularPool.filter(r=>!pinnedIds.has(r.id));
+    const kept=keepExisting ? currentSeven
+      .filter(r=>byId.has(r.id) && (!r.emergency || pinnedIds.has(r.id)))
+      .map(r=>byId.get(r.id)) : [];
+    const seen=new Set(kept.map(r=>r.id));
+    const locked=[...kept,...[...pinnedIds].filter(id=>!seen.has(id)).map(id=>byId.get(id))];
+    const lockedIds=new Set(locked.map(r=>r.id));
+    const available=regularPool.filter(r=>!lockedIds.has(r.id));
     const slots=Math.min(7-locked.length,available.length);
     if(!locked.length && !available.length){
       currentSeven=[];
@@ -710,8 +744,15 @@
     }
     if(pinnedIds.has(id)){flash("That meal is already fixed in the menu.");return;}
     if(pinnedIds.size>=7){flash("Unpin a meal before adding another.");return;}
+    // Adding a meal should replace at most one unpinned suggestion, not redraw
+    // all the other meals somebody may have spent time evaluating.
+    if(!currentSeven.some(r=>r.id===id) && currentSeven.length>=7){
+      const lastUnpinned=currentSeven.findLastIndex(r=>!pinnedIds.has(r.id));
+      if(lastUnpinned===-1){flash("Unpin a meal before adding another.");return;}
+      currentSeven.splice(lastUnpinned,1);
+    }
     pinnedIds.add(id);
-    chooseSeven();
+    chooseSeven(true,true);
   }
 
   function unpinMeal(id){
@@ -796,6 +837,7 @@
   }
 
   function renderChooser(){
+    persistChooserState();
     const choices=recipes.filter(r=>r.status==="not-made" && !pinnedIds.has(r.id))
       .sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:"base"}));
     $("specificMeal").innerHTML='<option value="">Choose a meal…</option>'+
@@ -830,6 +872,16 @@
         </div>
       </div>
     `).join("");
+  }
+
+  function openChooser(){
+    // The proposal is an unfinished draft until Accept 7, Reset All, or
+    // an explicit mulligan. Even a browser reload restores it by meal ID.
+    if(!currentSeven.length){chooseSeven();return;}
+    chooserOpen=true;
+    showView("all");
+    renderChooser();
+    $("chooserPanel").scrollIntoView({behavior:"smooth",block:"start"});
   }
 
   function showView(view){
@@ -982,7 +1034,7 @@
     pinnedIds.delete(id);
     currentSeven=currentSeven.filter(r=>r.id!==id);
     save();
-    if(wasSelected && !$("chooserPanel").classList.contains("hidden")) chooseSeven(false);
+    if(wasSelected) chooseSeven(false,true);
     else renderChooser();
     flash("Meal deleted.");
   }
@@ -993,7 +1045,7 @@
     if(status!=="not-made") pinnedIds.delete(id);
     currentSeven=currentSeven.filter(r=>r.id!==id || status==="not-made");
     save();
-    if(wasSelected && status!=="not-made" && !$("chooserPanel").classList.contains("hidden")) chooseSeven(false);
+    if(wasSelected && status!=="not-made") chooseSeven(false,true);
     else renderChooser();
   }
 
@@ -1038,7 +1090,7 @@
     save();
     const maxSuggested=Math.min(7,recipes.filter(r=>r.status==="not-made"&&!r.emergency).length+
       [...pinnedIds].filter(id=>recipes.some(r=>r.id===id&&r.status==="not-made"&&r.emergency)).length);
-    if(chooserOpen && currentSeven.length<maxSuggested) chooseSeven(false);
+    if(chooserOpen && currentSeven.length<maxSuggested) chooseSeven(false,true);
     else renderChooser();
     $("mealDialog").close();
     flash(editingId ? "Meal updated." : "Meal added.");
@@ -1122,9 +1174,9 @@
     showView("emergency");
     $("emergencyPanel").scrollIntoView({behavior:"smooth"});
   });
-  $("chooseBtn").addEventListener("click",chooseSeven);
+  $("chooseBtn").addEventListener("click",openChooser);
   $("closeChooserBtn").addEventListener("click",()=>{chooserOpen=false;showView("all");});
-  $("newSevenBtn").addEventListener("click",chooseSeven);
+  $("newSevenBtn").addEventListener("click",()=>chooseSeven());
   $("acceptSevenBtn").addEventListener("click",acceptSeven);
 
   $("resetBtn").addEventListener("click",()=>{
