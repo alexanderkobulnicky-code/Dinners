@@ -200,7 +200,7 @@
     <div class="chooser-note">
       Drawn from regular Not Made meals, excluding emergency reserves unless you add them yourself. The selector tries to keep fish, fried food, Claire-rating bands,
       difficulty, spice levels, lead times, soups, main types, and cuisines from becoming lopsided later, while avoiding too much repetition within this seven. It also gently favors ingredients on hand and meals that share perishables.
-      Add a specific Not Made meal below or from the master list to hold it fixed; the remaining slots will be chosen around it.
+      Add a specific Not Made meal below or from the master list to hold it fixed; the remaining slots will be chosen around it. Your unfinished seven will still be here when you return, even after reopening the app. Only Mulligan All draws a new seven.
     </div>
     <div class="chooser-controls">
       <label for="specificMeal">Keep a specific meal</label>
@@ -673,7 +673,7 @@
   // only when the user explicitly pins it to the proposed menu.
   // A fresh draw is deliberate: reopening the chooser never calls this function.
   // keepExisting only fills vacancies while preserving the meals under review.
-  function chooseSeven(scroll=true, keepExisting=false){
+  function chooseSeven(scroll=true, keepExisting=false, open=true){
     const manualPool=recipes.filter(r=>r.status==="not-made");
     const regularPool=manualPool.filter(r=>!r.emergency);
     const byId=new Map(manualPool.map(r=>[r.id,r]));
@@ -688,10 +688,9 @@
     const slots=Math.min(7-locked.length,available.length);
     if(!locked.length && !available.length){
       currentSeven=[];
-      chooserOpen=true;
-      showView("all");
+      if(open){chooserOpen=true;showView("all");}
       renderChooser();
-      flash("No regular Not Made meals remain. You can add an emergency meal manually.");
+      if(open) flash("No regular Not Made meals remain. You can add an emergency meal manually.");
       return;
     }
     // Include manually selected reserves in the scoring context, not the draw pool.
@@ -730,10 +729,9 @@
       }
     }
     currentSeven=best;
-    chooserOpen=true;
-    showView("all");
+    if(open){chooserOpen=true;showView("all");}
     renderChooser();
-    if(scroll) $("chooserPanel").scrollIntoView({behavior:"smooth",block:"start"});
+    if(open && scroll) $("chooserPanel").scrollIntoView({behavior:"smooth",block:"start"});
   }
 
   function pinMeal(id){
@@ -838,6 +836,7 @@
 
   function renderChooser(){
     persistChooserState();
+    $("chooseBtn").textContent=currentSeven.length ? "Review 7 Meals" : "Choose 7 Meals";
     const choices=recipes.filter(r=>r.status==="not-made" && !pinnedIds.has(r.id))
       .sort((a,b)=>a.name.localeCompare(b.name,undefined,{sensitivity:"base"}));
     $("specificMeal").innerHTML='<option value="">Choose a meal…</option>'+
@@ -1034,7 +1033,7 @@
     pinnedIds.delete(id);
     currentSeven=currentSeven.filter(r=>r.id!==id);
     save();
-    if(wasSelected) chooseSeven(false,true);
+    if(wasSelected) chooseSeven(false,true,false);
     else renderChooser();
     flash("Meal deleted.");
   }
@@ -1045,7 +1044,7 @@
     if(status!=="not-made") pinnedIds.delete(id);
     currentSeven=currentSeven.filter(r=>r.id!==id || status==="not-made");
     save();
-    if(wasSelected && status!=="not-made") chooseSeven(false,true);
+    if(wasSelected && status!=="not-made") chooseSeven(false,true,false);
     else renderChooser();
   }
 
@@ -1090,7 +1089,7 @@
     save();
     const maxSuggested=Math.min(7,recipes.filter(r=>r.status==="not-made"&&!r.emergency).length+
       [...pinnedIds].filter(id=>recipes.some(r=>r.id===id&&r.status==="not-made"&&r.emergency)).length);
-    if(chooserOpen && currentSeven.length<maxSuggested) chooseSeven(false,true);
+    if(chooserOpen && currentSeven.length<maxSuggested) chooseSeven(false,true,false);
     else renderChooser();
     $("mealDialog").close();
     flash(editingId ? "Meal updated." : "Meal added.");
